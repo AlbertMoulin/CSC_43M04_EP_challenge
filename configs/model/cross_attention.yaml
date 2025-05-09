@@ -1,9 +1,9 @@
 instance:
   _target_: models.cross_attention.DinoV2BertWithCrossAttention
-  image_hidden_dims: [1024, 1024, 1024]
-  text_hidden_dims: [1024, 1024, 1024]
+  image_hidden_dims: [512 , 512, 512 , 512, 512 , 512]
+  text_hidden_dims: [512 , 512, 512 , 512, 512 , 512]
   fusion_dim: 512
-  output_hidden_dims: [1024, 1024, 1024]
+  output_hidden_dims: [512 , 512, 512 , 512, 512 , 512]
   dropout_rate: 0.2
   freeze_bert: True
   freeze_dinov2: True

@@ -28,7 +28,7 @@ data_dir: ${root_dir}/dataset/
 root_dir:  ${hydra:runtime.cwd}
 checkpoint_path: ${root_dir}/checkpoints/${experiment_name}.pt
 
-resume_from_checkpoint: checkpoints/DINOV2_BERT_CROSS_ATTENTION_2025-05-09_12-18-28.pt
+resume_from_checkpoint: False
 
 
 
