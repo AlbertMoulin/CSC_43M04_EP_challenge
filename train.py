@@ -33,8 +33,27 @@ def train(cfg):
             {"sanity_checks/val_images": wandb.Image(val_sanity)}
         ) if logger is not None else None
 
+    start_epoch = 0
+    if cfg.resume_from_checkpoint:
+        print(f"Loading checkpoint from {cfg.resume_from_checkpoint}")
+        checkpoint = torch.load(cfg.resume_from_checkpoint)
+        
+        # Si vous avez sauvegardé plus que les poids du modèle (comme l'état de l'optimiseur)
+        if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+            model.load_state_dict(checkpoint['model_state_dict'])
+            if 'optimizer_state_dict' in checkpoint:
+                optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            if 'epoch' in checkpoint:
+                start_epoch = checkpoint['epoch'] + 1
+        else:
+            # Si vous avez sauvegardé uniquement les poids du modèle
+            model.load_state_dict(checkpoint)
+
+
+    best_val_loss = float('inf')
+    best_epoch = -1
     # -- loop over epochs
-    for epoch in tqdm(range(cfg.epochs), desc="Epochs"):
+    for epoch in tqdm(range(start_epoch,cfg.epochs), desc="Epochs"):
         # -- loop over training batches
         model.train()
         epoch_train_loss = 0
@@ -84,6 +103,26 @@ def train(cfg):
                 num_samples_val += len(batch["image"])
             epoch_val_loss /= num_samples_val
             val_metrics["val/loss_epoch"] = epoch_val_loss
+
+            if epoch_val_loss < best_val_loss:
+                best_val_loss = epoch_val_loss
+                best_epoch = epoch
+                
+                # Définir le chemin pour le meilleur modèle
+                best_model_path = cfg.checkpoint_path.replace('.pt', '_best.pt')
+                
+                # Sauvegarder le meilleur modèle
+                torch.save({
+                    'epoch': epoch,
+                    'model_state_dict': model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'val_loss': best_val_loss,
+                    'train_loss': epoch_train_loss,
+                }, best_model_path)
+                
+                print(f"\n==> Nouveau meilleur modèle sauvegardé (epoch {epoch}) avec val_loss: {best_val_loss:.4f}")
+            
+
             (
                 logger.log(
                     {
@@ -100,13 +139,22 @@ def train(cfg):
         Training metrics:
         - Train Loss: {epoch_train_loss:.4f},
         Validation metrics: 
-        - Val Loss: {epoch_val_loss:.4f}"""
+        - Val Loss: {epoch_val_loss:.4f}
+
+        Best model saved at epoch {best_epoch} with val_loss: {best_val_loss:.4f}
+"""
     )
 
     if cfg.log:
         logger.finish()
 
-    torch.save(model.state_dict(), cfg.checkpoint_path)
+    torch.save({
+        'epoch': cfg.epochs - 1,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'train_loss': epoch_train_loss,
+        'val_loss': epoch_val_loss if val_loader is not None else None,
+    }, cfg.checkpoint_path)
 
 
 if __name__ == "__main__":
