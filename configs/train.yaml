@@ -2,7 +2,7 @@ defaults:
     - _self_
     - dataset: default
     - optim: adamw
-    - model: dinov2
+    - model: multimodal
     - loss_fn: msle
 
 epochs: 20

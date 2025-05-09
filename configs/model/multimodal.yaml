@@ -1,0 +1,11 @@
+instance:
+  _target_: models.multimodal.MultiModalModel
+  image_hidden_dims: [1024, 512, 256]
+  text_hidden_dims: [768, 512]
+  fusion_hidden_dims: [512, 256, 128]
+  dropout_rate: 0.2
+  freeze_bert: True
+  bert_model: "bert-base-uncased"
+  text_max_length: 128
+
+name: DINOV2_BERT

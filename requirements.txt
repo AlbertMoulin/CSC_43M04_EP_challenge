@@ -6,3 +6,5 @@ pre-commit
 black
 flake8
 wandb
+transformers
+sentencepiece
