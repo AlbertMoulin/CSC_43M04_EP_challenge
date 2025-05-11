@@ -1,0 +1,22 @@
+instance:
+  _target_: models.dinov2_llama_multihead.DinoV2LLamaMultiHead
+  
+  # Paramètres DinoV2
+  freeze_dinov2: True
+  dinov2_output_dim: 512  # Dimension commune après projection
+  
+  # Paramètres LLama (ou alternative)
+  llama_model_name: "microsoft/DialoGPT-small"  # Alternative légère à LLama
+  freeze_llama: True
+  text_max_length: 64
+  
+  # Paramètres Multi-Head Attention
+  n_attention_layers: 2
+  n_attention_heads: 4
+  attention_dropout: 0.1
+  
+  # Paramètres MLP final
+  final_hidden_dims: [512, 128]
+  final_dropout: 0.2
+
+name: DINOV2_LLAMA_MULTIHEAD
