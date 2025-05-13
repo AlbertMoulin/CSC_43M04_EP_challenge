@@ -2,6 +2,9 @@ import hydra
 from torch.utils.data import DataLoader
 import pandas as pd
 import torch
+import torch.serialization # Assurez-vous d'importer serialization
+import omegaconf.listconfig
+import typing
 
 from data.dataset import Dataset
 
@@ -22,9 +25,11 @@ def create_submission(cfg):
     )
     # - Load model and checkpoint
     model = hydra.utils.instantiate(cfg.model.instance).to(device)
-    checkpoint = torch.load(cfg.checkpoint_path)
-    print(f"Loading model from checkpoint: {cfg.checkpoint_path}")
-    model.load_state_dict(checkpoint)
+    
+    checkpoint = torch.load(r'checkpoints/CombinedModel_2025-05-12_23-43-51_best.pt', weights_only=False)
+    model_state_dict = checkpoint['model_state_dict']
+    print(f"Loading model from checkpoint: {0}")
+    model.load_state_dict(model_state_dict)
     print("Model loaded")
 
     # - Create submission.csv
