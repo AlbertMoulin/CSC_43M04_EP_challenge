@@ -1,5 +1,6 @@
 instance:
-  _target_: models.dinov2.DinoV2Finetune
-  frozen: True
+  _target_: models.dinov2.DinoV2BertMultimodalRegressor
+  frozen_image: True
+  frozen_text: True
 
 name: DINOV2

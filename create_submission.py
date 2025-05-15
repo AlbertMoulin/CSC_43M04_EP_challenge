@@ -32,6 +32,8 @@ def create_submission(cfg):
 
     for i, batch in enumerate(test_loader):
         batch["image"] = batch["image"].to(device)
+        batch["input_ids"] = batch["input_ids"].to(device)
+        batch["attention_mask"] = batch["attention_mask"].to(device)  
         with torch.no_grad():
             preds = model(batch).squeeze().cpu().numpy()
         submission = pd.concat(
@@ -41,6 +43,7 @@ def create_submission(cfg):
             ]
         )
     submission.to_csv(f"{cfg.root_dir}/submission.csv", index=False)
+    print("created")
 
 
 if __name__ == "__main__":

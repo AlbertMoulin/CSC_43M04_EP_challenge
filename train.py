@@ -43,6 +43,8 @@ def train(cfg):
         for i, batch in enumerate(pbar):
             batch["image"] = batch["image"].to(device)
             batch["target"] = batch["target"].to(device).squeeze()
+            batch["input_ids"] = batch["input_ids"].to(device)
+            batch["attention_mask"] = batch["attention_mask"].to(device)
             preds = model(batch).squeeze()
             loss = loss_fn(preds, batch["target"])
             (
@@ -77,6 +79,8 @@ def train(cfg):
             for _, batch in enumerate(val_loader):
                 batch["image"] = batch["image"].to(device)
                 batch["target"] = batch["target"].to(device).squeeze()
+                batch["input_ids"] = batch["input_ids"].to(device)
+                batch["attention_mask"] = batch["attention_mask"].to(device)     
                 with torch.no_grad():
                     preds = model(batch).squeeze()
                 loss = loss_fn(preds, batch["target"])
