@@ -16,6 +16,8 @@ def train(cfg):
     )
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = hydra.utils.instantiate(cfg.model.instance).to(device)
+    encoder = hydra.utils.instantiate(cfg.encoder.instance).to(device)
+    fusion = hydra.utils.instantiate(cfg.fusion.instance)
     optimizer = hydra.utils.instantiate(cfg.optim, params=model.parameters())
     loss_fn = hydra.utils.instantiate(cfg.loss_fn)
     datamodule = hydra.utils.instantiate(cfg.datamodule)
@@ -45,7 +47,10 @@ def train(cfg):
             batch["target"] = batch["target"].to(device).squeeze()
             batch["input_ids"] = batch["input_ids"].to(device)
             batch["attention_mask"] = batch["attention_mask"].to(device)
-            preds = model(batch).squeeze()
+
+            image_embed,tex_embed = encoder(batch["image"],batch["text"])
+            fused = fusion(image_embed,tex_embed)
+            preds = model(fused).squeeze()
             loss = loss_fn(preds, batch["target"])
             (
                 logger.log({"loss": loss.detach().cpu().numpy()})

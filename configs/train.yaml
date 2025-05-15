@@ -1,9 +1,11 @@
 defaults:
     - _self_
     - dataset: default
-    - optim: adamw
-    - model: dinov2
+    - encoder: clip        
+    - fusion: concat       
+    - model: mlp_regressor 
     - loss_fn: msle
+    - optim: adamw
 
 epochs: 20
 log: True
@@ -18,10 +20,10 @@ hydra:
 datamodule:
   _target_: data.datamodule.DataModule
   dataset_path: ${data_dir}
-  train_transform: ${dataset.train_transform}
-  test_transform: ${dataset.val_transform}
   batch_size: ${dataset.batch_size}
   num_workers: ${dataset.num_workers}
+  train_transform: ${dataset.train_transform}
+  test_transform: ${dataset.val_transform}
   metadata: ${dataset.metadata}
 
 data_dir: ${root_dir}/dataset/

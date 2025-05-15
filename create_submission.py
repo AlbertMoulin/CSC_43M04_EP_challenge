@@ -22,6 +22,8 @@ def create_submission(cfg):
     )
     # - Load model and checkpoint
     model = hydra.utils.instantiate(cfg.model.instance).to(device)
+    encoder = hydra.utils.instantiate(cfg.encoder.instance).to(device)
+    fusion = hydra.utils.instantiate(cfg.fusion.instance)
     checkpoint = torch.load(cfg.checkpoint_path)
     print(f"Loading model from checkpoint: {cfg.checkpoint_path}")
     model.load_state_dict(checkpoint)
@@ -33,9 +35,12 @@ def create_submission(cfg):
     for i, batch in enumerate(test_loader):
         batch["image"] = batch["image"].to(device)
         batch["input_ids"] = batch["input_ids"].to(device)
-        batch["attention_mask"] = batch["attention_mask"].to(device)  
+        batch["attention_mask"] = batch["attention_mask"].to(device)
+
+        image_embed,tex_embed = encoder(batch["image"],batch["text"])
+        fused = fusion(image_embed,tex_embed)
         with torch.no_grad():
-            preds = model(batch).squeeze().cpu().numpy()
+            preds = model(fused).squeeze().cpu().numpy()
         submission = pd.concat(
             [
                 submission,
