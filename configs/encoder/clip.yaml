@@ -1,0 +1,4 @@
+instance:
+  _target_: models.encoder.CLIPWrapper
+  frozen: True
+name: openai/clip-vit-base-patch32
