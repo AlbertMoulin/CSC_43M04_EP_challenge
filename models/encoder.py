@@ -24,7 +24,7 @@ class CLIPWrapper(nn.Module):
             text_embeds: Tensor (B, D)
         """
         device = next(self.model.parameters()).device
-        inputs = self.processor(text=texts, images=images, return_tensors="pt", padding=True, truncation=True)
+        inputs = self.processor(text=texts, images=images, return_tensors="pt", padding=True, truncation=True, do_rescale=False)
         inputs = {k: v.to(device) for k, v in inputs.items()}
         outputs = self.model(**inputs)
         return outputs.image_embeds, outputs.text_embeds

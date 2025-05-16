@@ -40,7 +40,8 @@ def create_submission(cfg):
         image_embed,tex_embed = encoder(batch["image"],batch["text"])
         fused = fusion(image_embed,tex_embed)
         with torch.no_grad():
-            preds = model(fused).squeeze().cpu().numpy()
+            preds = model(fused).squeeze()
+            preds = torch.clamp(preds, min=0).cpu().numpy()
         submission = pd.concat(
             [
                 submission,
