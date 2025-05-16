@@ -71,16 +71,16 @@ class DataModule:
         val_set = Dataset(
             self.dataset_path,
             "train_val",
-            transforms=self.train_transform,
+            transforms=self.test_transform,
             metadata=self.metadata,
         )
 
-        validation_dataset = torch.utils.data.Subset(val_set, self.train_indices)
+        validation_dataset = torch.utils.data.Subset(val_set, self.val_indices)
 
         return DataLoader(
             validation_dataset,
             batch_size=self.batch_size,
-            shuffle=True,
+            shuffle=False,
             num_workers=self.num_workers,
         )
     
