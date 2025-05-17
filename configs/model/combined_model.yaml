@@ -1,9 +1,11 @@
 instance:
-  _target_: models.combined_model.CombinedModel # Pointez vers la nouvelle classe
-  image_mlp_layers: [1024, 1] # Définir la structure du MLP image (exemple)
-  text_model_name: "bert-base-uncased" # Choisir un modèle texte (exemple)
-  text_mlp_layers: [1024, 1024, 1024, 1] # Définir la structure du MLP texte (exemple)
-  freeze_dinov2: True # Optionnel : Geler le backbone DinoV2
-  freeze_text_model: True # Optionnel : Geler le backbone du modèle texte
+  _target_: models.combined_model.CombinedModel
+  image_mlp_layers: [1024, 1024, 1024, 1]
+  text_model_name: "bert-base-uncased"
+  text_mlp_layers: [1024, 1024, 1024, 1]
+  metadata_mlp_layers: [1024, 1024, 1024, 1]
+  num_channels: 1000  # Will be overridden with actual num_channels from dataset
+  freeze_dinov2: True
+  freeze_text_model: True
 
-name: CombinedModel # Nom pour ce modèle dans Hydra
+name: EnhancedCombinedModel
