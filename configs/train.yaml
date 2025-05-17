@@ -1,8 +1,8 @@
 defaults:
     - _self_
-    - dataset: default
+    - dataset: default # Keep default dataset config for batch_size, num_workers, etc.
     - optim: adamw
-    - model: combined_model
+    - model: combined_model # This will now refer to combined_model.yaml
     - loss_fn: msle
 
 epochs: 30
@@ -22,7 +22,10 @@ datamodule:
   test_transform: ${dataset.val_transform}
   batch_size: ${dataset.batch_size}
   num_workers: ${dataset.num_workers}
-  metadata: ${dataset.metadata}
+  # metadata is no longer used by the new Dataset and DataModule
+  # Remove or comment out: metadata: ${dataset.metadata}
+  val_split: 0.2 # Example: configure validation split
+  random_seed: 42 # Example: configure random seed
 
 data_dir: ${root_dir}/dataset/
 root_dir:  ${hydra:runtime.cwd}
@@ -30,5 +33,9 @@ checkpoint_path: ${root_dir}/checkpoints/${experiment_name}.pt
 
 resume_from_checkpoint: False
 
-
-
+# Example of how to pass num_channels from datamodule to model
+# This is configured directly in combined_model.yaml using interpolation: ${datamodule.num_channels}
+# You might also explicitly pass it here if needed, but interpolation is cleaner.
+# model:
+#  instance:
+#    num_channels: ${datamodule.num_channels}

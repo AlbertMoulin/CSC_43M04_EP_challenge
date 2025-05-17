@@ -1,9 +1,24 @@
 instance:
-  _target_: models.combined_model.CombinedModel # Pointez vers la nouvelle classe
-  image_mlp_layers: [1024, 1] # Définir la structure du MLP image (exemple)
-  text_model_name: "bert-base-uncased" # Choisir un modèle texte (exemple)
-  text_mlp_layers: [1024, 1024, 1024, 1] # Définir la structure du MLP texte (exemple)
-  freeze_dinov2: True # Optionnel : Geler le backbone DinoV2
-  freeze_text_model: True # Optionnel : Geler le backbone du modèle texte
+  _target_: models.combined_model.CombinedModel # Point to the new class
+  image_mlp_layers: [1024,1024,1024,1] # Example layers for image MLP (output dim for concatenation mode)
+  text_model_name: "bert-base-uncased" # Choose a text model (example)
+  title_mlp_layers: [1024,1024,1024,1] # Example layers for title MLP (output dim for concatenation mode)
+  num_channels: ${datamodule.num_channels} # Will be injected by Hydra from DataModule
+  channel_embedding_dim: 32 # Example embedding dimension for channels
+  channel_mlp_layers: [1024,1024,1024,1] # Example layers for channel MLP (output dim for concatenation mode)
+  date_mlp_layers: [1024,1024,1024,1] # Example layers for date MLP (output dim for concatenation mode)
+  combination_mode: 'weighted_sum' # Choose 'concatenate_mlp' or 'weighted_sum'
+  # Define final MLP layers if using 'concatenate_mlp' mode. The last layer should have output dim 1.
+  final_mlp_layers: null # Example final MLP layers
+  # If using 'weighted_sum', set the last layer of *each branch* MLP to output dimension 1
+  # image_mlp_layers: [512, 1]
+  # title_mlp_layers: [512, 1]
+  # channel_mlp_layers: [64, 1]
+  # date_mlp_layers: [32, 1]
+  # final_mlp_layers: null # Not needed for weighted_sum
 
-name: CombinedModel # Nom pour ce modèle dans Hydra
+  freeze_dinov2: True # Optional: Freeze DinoV2 backbone
+  freeze_text_model: True # Optional: Freeze text model backbone
+  max_token_length: 128 # Optional: Maximum token length for text
+
+name: CombinedModelNew # Name for this model in Hydra
