@@ -1,77 +1,93 @@
 import torch
 import torch.nn as nn
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoModel, AutoTokenizer, CLIPModel
 import datetime
 import re
 
 # Maximum token length for text processing
 MAX_TOKEN_LENGTH = 128
 
-class ImageBranch(nn.Module):
+class CLIPImageBranch(nn.Module):
     """
-    Image processing branch: DinoV2 + MLP.
+    Image processing branch using CLIP for better thumbnail attractiveness assessment.
     """
-    def __init__(self, dinov2_model, mlp_layers):
+    def __init__(self, clip_model_name="openai/clip-vit-base-patch32", mlp_layers=[1024, 512, 256, 1], freeze_clip=True):
         super().__init__()
-        self.backbone = dinov2_model # DinoV2 model (without the head)
-        layers = []
-        # Input dimension for MLP is DinoV2's output dimension
-        input_dim = dinov2_model.norm.normalized_shape[0] # Should be 768 for dinov2_vitb14_reg
-
+        self.clip = CLIPModel.from_pretrained(clip_model_name).vision_model
+        
+        # Freeze CLIP parameters if specified
+        if freeze_clip:
+            for param in self.clip.parameters():
+                param.requires_grad = False
+        
+        # Get CLIP image embedding dimension
+        clip_dim = self.clip.config.hidden_size  # 768 for ViT-B/32
+        
         # Building MLP layers
+        layers = []
+        input_dim = clip_dim
+        
         for output_dim in mlp_layers[:-1]:
             layers.append(nn.Linear(input_dim, output_dim))
-            layers.append(nn.ReLU())
+            layers.append(nn.LayerNorm(output_dim))
+            layers.append(nn.GELU())  # Using GELU activation as in CLIP/BART
             layers.append(nn.Dropout(0.1))
             input_dim = output_dim
-
-        # Output layer (single prediction)
-        layers.append(nn.Linear(input_dim, mlp_layers[-1])) # mlp_layers[-1] should be 1
-
+            
+        # Output layer
+        layers.append(nn.Linear(input_dim, mlp_layers[-1]))
+        
         self.mlp = nn.Sequential(*layers)
-
+        
     def forward(self, image):
-        # Get image features via DinoV2
-        x = self.backbone(image)
-        # Pass features through MLP
-        x = self.mlp(x)
+        # Extract image features from CLIP
+        outputs = self.clip(image)
+        image_embeds = outputs.pooler_output  # Get the [CLS] token representation
+        
+        # Pass through MLP
+        x = self.mlp(image_embeds)
         return x
 
-class TextBranch(nn.Module):
+class BARTTextBranch(nn.Module):
     """
-    Text processing branch: Transformer model + MLP.
-    Note: Tokenization is handled in the CombinedModel forward method.
+    Text processing branch using BART for better title engagement assessment.
     """
-    def __init__(self, text_model_name, mlp_layers):
+    def __init__(self, bart_model_name="facebook/bart-base", mlp_layers=[1024, 512, 256, 1], freeze_bart=True):
         super().__init__()
-        # Load pre-trained text model
-        self.backbone = AutoModel.from_pretrained(text_model_name, trust_remote_code=True)
-
-        # Input dimension for MLP is the hidden size of text model output
-        text_feature_dim = self.backbone.config.hidden_size # Ex: 768 for bert-base-uncased
-
-        layers = []
-        input_dim = text_feature_dim
-
+        self.bart = AutoModel.from_pretrained(bart_model_name)
+        
+        # Freeze BART parameters if specified
+        if freeze_bart:
+            for param in self.bart.parameters():
+                param.requires_grad = False
+        
+        # Get BART hidden dimension
+        bart_dim = self.bart.config.d_model  # 768 for bart-base
+        
         # Building MLP layers
+        layers = []
+        input_dim = bart_dim
+        
         for output_dim in mlp_layers[:-1]:
             layers.append(nn.Linear(input_dim, output_dim))
-            layers.append(nn.ReLU())
+            layers.append(nn.LayerNorm(output_dim))
+            layers.append(nn.GELU())
             layers.append(nn.Dropout(0.1))
             input_dim = output_dim
-
-        # Output layer (single prediction)
-        layers.append(nn.Linear(input_dim, mlp_layers[-1])) # mlp_layers[-1] should be 1
-
+            
+        # Output layer
+        layers.append(nn.Linear(input_dim, mlp_layers[-1]))
+        
         self.mlp = nn.Sequential(*layers)
-
+        
     def forward(self, input_ids, attention_mask):
-        # Get hidden states from text model
-        outputs = self.backbone(input_ids=input_ids, attention_mask=attention_mask)
-        # Take hidden state of first token ([CLS]) for sequence representation
-        text_features = outputs.last_hidden_state[:, 0, :]
-        # Pass features through MLP
-        x = self.mlp(text_features)
+        # Extract text features from BART
+        outputs = self.bart(input_ids=input_ids, attention_mask=attention_mask)
+        # Use the encoder's pooled output for classification
+        text_embeds = outputs.encoder_last_hidden_state[:, 0, :]
+        
+        # Pass through MLP
+        x = self.mlp(text_embeds)
         return x
 
 class MetadataBranch(nn.Module):
@@ -115,50 +131,53 @@ class MetadataBranch(nn.Module):
         x = self.mlp(metadata_features)
         return x
 
-class CombinedModel(nn.Module):
+
+
+
+
+class EnhancedCombinedModel(nn.Module):
     """
-    Combined model for predicting views from image, text, date and channel.
+    Enhanced combined model using CLIP for images and BART for text to better predict YouTube thumbnail views.
     """
     def __init__(
-        self, 
-        image_mlp_layers, 
-        text_model_name, 
-        text_mlp_layers, 
-        metadata_mlp_layers,
-        num_channels=1000,
-        freeze_dinov2=True, 
-        freeze_text_model=True, 
-        max_token_length=MAX_TOKEN_LENGTH
-    ):
+            self,
+            image_mlp_layers=[1024, 512, 256, 1], 
+            text_model_name='facebook/bart-base',
+            text_mlp_layers=[1024, 512, 256, 1], 
+            metadata_mlp_layers=[1024, 512, 256, 1],
+            num_channels=1000,
+            freeze_clip=True,
+            freeze_text_model=True,
+            max_token_length=128
+        ):
         super().__init__()
         
-        # Image branch setup: Load DinoV2 and create ImageBranch
-        dinov2_backbone = torch.hub.load("facebookresearch/dinov2", "dinov2_vitb14_reg")
-        dinov2_backbone.head = nn.Identity() # Remove default head
-        if freeze_dinov2:
-            for param in dinov2_backbone.parameters():
-                param.requires_grad = False
-        self.image_branch = ImageBranch(dinov2_backbone, image_mlp_layers)
-
-        # Text branch setup: Create TextBranch
-        self.text_branch = TextBranch(text_model_name, text_mlp_layers)
-        if freeze_text_model:
-            # Freeze text model backbone
-            for param in self.text_branch.backbone.parameters():
-                param.requires_grad = False
-
-        # Metadata branch setup: Create MetadataBranch
+        # Image branch (CLIP)
+        self.image_branch = CLIPImageBranch(
+            clip_model_name="openai/clip-vit-base-patch32",
+            mlp_layers=image_mlp_layers,
+            freeze_clip=freeze_clip
+        )
+        
+        # Text branch (BART)
+        self.text_branch = BARTTextBranch(
+            bart_model_name=text_model_name,
+            mlp_layers=text_mlp_layers,
+            freeze_bart=freeze_text_model
+        )
+        
+        # Metadata branch (unchanged)
         self.metadata_branch = MetadataBranch(metadata_mlp_layers, num_channels)
-
-        # Tokenizer for processing raw text
+        
+        # Tokenizer for BART
         self.tokenizer = AutoTokenizer.from_pretrained(text_model_name)
         self.max_token_length = max_token_length
-
-        # Learnable weights for combination
+        
+        # Learnable weights for combining the branches
         self.weight_image = nn.Parameter(torch.tensor(0.33))
         self.weight_text = nn.Parameter(torch.tensor(0.33))
         self.weight_metadata = nn.Parameter(torch.tensor(0.34))
-
+        
     def _parse_date(self, date_str):
         """
         Parse date string into numerical features.
@@ -196,7 +215,7 @@ class CombinedModel(nn.Module):
             # If all parsing fails, return default values
             print(f"Error parsing date '{date_str}': {e}")
             return torch.tensor([0.0, 0.0, 0.0, 0.0, 0.0], dtype=torch.float32)
-
+        
     def forward(self, batch):
         # Extract components from batch
         image = batch["image"]
@@ -208,10 +227,9 @@ class CombinedModel(nn.Module):
             date_features.append(self._parse_date(date_str))
         date_features = torch.stack(date_features).to(image.device)
         
-        # Channel IDs - we expect these to be already converted to indices in dataset
         channel_ids = batch["channel_id"].to(image.device)
 
-        # --- Text processing: Tokenization ---
+        # Process text with BART tokenizer
         encoded_text = self.tokenizer(
             list(raw_text),
             padding='max_length',
@@ -219,7 +237,7 @@ class CombinedModel(nn.Module):
             max_length=self.max_token_length,
             return_tensors='pt'
         )
-
+        
         # Send text tensors to same device as model
         input_ids = encoded_text['input_ids'].to(image.device)
         attention_mask = encoded_text['attention_mask'].to(image.device)

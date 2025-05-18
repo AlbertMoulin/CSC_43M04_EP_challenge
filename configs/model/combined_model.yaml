@@ -1,11 +1,10 @@
 instance:
-  _target_: models.combined_model.CombinedModel
+  _target_: models.combined_model.EnhancedCombinedModel
   image_mlp_layers: [1024, 1024, 1024, 1]
   text_model_name: 'facebook/bart-base'
   text_mlp_layers: [1024, 1024, 1024, 1]
   metadata_mlp_layers: [1024, 1024, 1024, 1]
   num_channels: 1000  # Will be overridden with actual num_channels from dataset
-  freeze_dinov2: False
-  freeze_text_model: False
+
 
 name: EnhancedCombinedModel
