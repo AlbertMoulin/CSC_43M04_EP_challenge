@@ -45,7 +45,7 @@ class TextBranch(nn.Module):
     def __init__(self, text_model_name, mlp_layers):
         super().__init__()
         # Load pre-trained text model
-        self.backbone = AutoModel.from_pretrained(text_model_name)
+        self.backbone = AutoModel.from_pretrained(text_model_name, trust_remote_code=True)
 
         # Input dimension for MLP is the hidden size of text model output
         text_feature_dim = self.backbone.config.hidden_size # Ex: 768 for bert-base-uncased
