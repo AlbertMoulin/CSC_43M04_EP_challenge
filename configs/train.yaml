@@ -2,7 +2,7 @@ defaults:
     - _self_
     - dataset: default
     - optim: adamw
-    - model: clip_combined
+    - model: combined_model
     - loss_fn: msle
 
 epochs: 30

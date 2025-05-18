@@ -1,9 +1,0 @@
-instance:
-  _target_: models.clip_combined.CLIPCombinedModel
-  mlp_layers: [1024, 1024, 1024,1024,1024,1024, 1]
-  clip_model_name: "openai/clip-vit-base-patch32"
-  num_channels: 1000  # Will be overridden with actual num_channels from dataset
-  freeze_clip: True
-  dropout_rate: 0.2
-
-name: CLIPCombinedModel
