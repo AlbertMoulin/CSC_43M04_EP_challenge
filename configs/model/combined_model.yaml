@@ -6,6 +6,6 @@ instance:
   metadata_mlp_layers: [1024, 1024, 1024, 1]
   num_channels: 1000  # Will be overridden with actual num_channels from dataset
   freeze_dinov2: False
-  freeze_text_model: True
+  freeze_text_model: False
 
 name: EnhancedCombinedModel
