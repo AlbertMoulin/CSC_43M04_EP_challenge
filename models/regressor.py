@@ -37,25 +37,24 @@ class FeatureGate(nn.Module):
         return x * self.gate(x)
 
 class ResidualBlock(nn.Module):
-    def __init__(self, dim, dropout=0.3):
+    def __init__(self, dim):
         super().__init__()
         self.linear = nn.Linear(dim, dim)
-        self.act = nn.GELU()
-        self.dropout = nn.Dropout(dropout)
+        self.act = nn.ReLU()
     def forward(self, x):
         out = self.linear(x)
         out = self.act(out)
-        out = self.dropout(out)
         return out + x  #residual connection
 
 class ImprovedMLPRegressor(nn.Module):
     def __init__(self, input_dim=1024, hidden_dim=512, num_layers=2, dropout=0.3):
         super().__init__()
         self.input_projection = nn.Linear(input_dim, hidden_dim)
-        self.blocks = nn.ModuleList([
-            ResidualBlock(hidden_dim, dropout=dropout) for _ in range(num_layers)
-        ])
         self.feature_gate = FeatureGate(hidden_dim)
+        self.blocks = nn.ModuleList([
+            ResidualBlock(hidden_dim) for _ in range(num_layers)
+        ])
+        self.dropout = nn.Dropout(dropout)
         self.output_layer = nn.Linear(hidden_dim, 1)
 
     def forward(self, x):
@@ -63,4 +62,5 @@ class ImprovedMLPRegressor(nn.Module):
         x = self.feature_gate(x)
         for block in self.blocks:
             x = block(x)
+        x = self.dropout(x)
         return self.output_layer(x).squeeze(1)

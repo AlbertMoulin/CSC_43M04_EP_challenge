@@ -1,5 +1,6 @@
-from torch.utils.data import DataLoader
-
+from torch.utils.data import DataLoader, random_split
+import torch
+import pandas as pd
 from data.dataset import Dataset
 
 
@@ -19,6 +20,29 @@ class DataModule:
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.metadata = metadata
+        self.val_split = 0.2
+        self.random_seed = 42  # Pour la reproductibilité
+        self._setup_indices()
+
+    def _setup_indices(self):
+        """Prépare les indices pour les ensembles train et validation."""
+        # Charger les données pour obtenir le nombre total d'échantillons
+        df = pd.read_csv(f"{self.dataset_path}/train_val.csv")
+        dataset_size = len(df)
+        
+        # Calculer la taille de l'ensemble de validation
+        val_size = int(self.val_split * dataset_size)
+        train_size = dataset_size - val_size
+        
+        # Créer un générateur avec une graine fixe pour la reproductibilité
+        generator = torch.Generator().manual_seed(self.random_seed)
+        
+        # Générer les indices pour train et val
+        self.train_indices, self.val_indices = random_split(
+            range(dataset_size), 
+            [train_size, val_size],
+            generator=generator
+        )
 
     def train_dataloader(self):
         """Train dataloader."""
@@ -28,18 +52,31 @@ class DataModule:
             transforms=self.train_transform,
             metadata=self.metadata,
         )
+
+        train_dataset = torch.utils.data.Subset(train_set, self.train_indices)
+
         return DataLoader(
-            train_set,
+            train_dataset,
             batch_size=self.batch_size,
             shuffle=True,
             num_workers=self.num_workers,
         )
 
     def val_dataloader(self):
-        """TODO: 
-        Implement a strategy to create a validation set from the train set.
-        """
-        return None
+        val_set = Dataset(
+            self.dataset_path,
+            "train_val",
+            transforms=self.test_transform,
+            metadata=self.metadata,
+        )
+
+        validation_dataset = torch.utils.data.Subset(val_set, self.val_indices)
+        return DataLoader(
+            validation_dataset,
+            batch_size=self.batch_size,
+            shuffle=False,
+            num_workers=self.num_workers,
+        )
     
     def test_dataloader(self):
         """Test dataloader."""

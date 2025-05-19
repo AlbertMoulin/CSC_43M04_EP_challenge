@@ -9,8 +9,10 @@ from utils.sanity import show_images
 
 @hydra.main(config_path="configs", config_name="train")
 def train(cfg):
+    config = {"metadata":cfg.dataset.metadata, "epochs":cfg.epochs, "batch_size":cfg.dataset.batch_size, "lr":cfg.optim.lr, "dropout":cfg.model.instance.dropout, "hidden_dim":cfg.model.instance.hidden_dim, 
+              "num_layers":cfg.model.instance.num_layers, "validation_split":cfg.dataset.validation_split, "validation_set":cfg.dataset.validation_set}
     logger = (
-        wandb.init(project="challenge_CSC_43M04_EP", name=cfg.experiment_name)
+        wandb.init(project="challenge_CSC_43M04_EP", name=cfg.experiment_name,config=config)
         if cfg.log
         else None
     )
@@ -86,8 +88,10 @@ def train(cfg):
                 batch["target"] = batch["target"].to(device).squeeze()
                 batch["input_ids"] = batch["input_ids"].to(device)
                 batch["attention_mask"] = batch["attention_mask"].to(device)     
+                image_embed,tex_embed = encoder(batch["image"],batch["text"])
+                fused = fusion(image_embed,tex_embed)
                 with torch.no_grad():
-                    preds = model(batch).squeeze()
+                    preds = model(fused).squeeze()
                 loss = loss_fn(preds, batch["target"])
                 epoch_val_loss += loss.detach().cpu().numpy() * len(batch["image"])
                 num_samples_val += len(batch["image"])
