@@ -5,7 +5,7 @@ defaults:
     - model: combined_model
     - loss_fn: msle
 
-epochs: 30
+epochs: 60
 log: True
 prefix: ""
 experiment_name: ${prefix}${model.name}_${now:%Y-%m-%d_%H-%M-%S}
@@ -28,7 +28,7 @@ data_dir: ${root_dir}/dataset/
 root_dir:  ${hydra:runtime.cwd}
 checkpoint_path: ${root_dir}/checkpoints/${experiment_name}.pt
 
-resume_from_checkpoint: False
+resume_from_checkpoint: checkpoints/EnhancedCombinedModel_2025-05-18_18-40-47_best.pt
 
 
 
