@@ -189,6 +189,7 @@ class EnhancedCombinedModel(nn.Module):
             
         self.self_attention1 = MultiHeadSelfAttention(self.combined_dim, attention_heads)
         self.self_attention2 = MultiHeadSelfAttention(self.combined_dim, attention_heads)
+        self.self_attention3 = MultiHeadSelfAttention(self.combined_dim, attention_heads)
         
         # Final MLP
         layers = []
@@ -293,17 +294,18 @@ class EnhancedCombinedModel(nn.Module):
         if self.padding_projection is not None:
             combined_features = self.padding_projection(combined_features)
         
-        # Reshape for self-attention (batch_size, seq_length=1, feature_dim)
-        combined_features = combined_features.unsqueeze(1)
+        # # Reshape for self-attention (batch_size, seq_length=1, feature_dim)
+        # combined_features = combined_features.unsqueeze(1)
         
-        # Apply self-attention twice
-        attended_features = self.self_attention1(combined_features)
-        attended_features = self.self_attention2(attended_features)
-        
-        # Squeeze back to (batch_size, feature_dim)
-        attended_features = attended_features.squeeze(1)
+        # # Apply self-attention twice
+        # attended_features = self.self_attention1(combined_features)
+
+
+        # # Squeeze back to (batch_size, feature_dim)
+        # attended_features = attended_features.squeeze(1)
         
         # Apply final MLP
-        output = self.final_mlp(attended_features)
+        # output = self.final_mlp(attended_features)
+        output = self.final_mlp(combined_features)
         
         return output
