@@ -127,7 +127,7 @@ class EnhancedCombinedModel(nn.Module):
         freeze_dinov2=True, 
         freeze_text_model=True,
         metadata_percentage=0.2,
-        attention_heads=8,
+        attention_heads=4,
         max_token_length=MAX_TOKEN_LENGTH
     ):
         super().__init__()
@@ -157,7 +157,16 @@ class EnhancedCombinedModel(nn.Module):
         self.metadata_percentage = metadata_percentage
 
         # Feature dimension after combination
-        self.combined_dim = self.image_dim + self.text_dim + int(self.metadata_dim * metadata_percentage)
+        raw_combined_dim = self.image_dim + self.text_dim + int(self.metadata_dim * metadata_percentage)
+        self.combined_dim = raw_combined_dim
+        
+        # Print dimensions for debugging
+        print(f"Image dimension: {self.image_dim}")
+        print(f"Text dimension: {self.text_dim}")
+        print(f"Metadata dimension: {self.metadata_dim}")
+        print(f"Metadata percentage: {self.metadata_percentage}")
+        print(f"Raw combined dimension: {raw_combined_dim}")
+        print(f"Attention heads: {attention_heads}")
         
         # Linear projections to adjust feature dimensions before combining
         self.image_projection = nn.Linear(self.image_dim, self.image_dim)
@@ -165,6 +174,19 @@ class EnhancedCombinedModel(nn.Module):
         self.metadata_projection = nn.Linear(self.metadata_dim, int(self.metadata_dim * metadata_percentage))
         
         # Self-attention layers
+        # Ensure combined_dim is divisible by attention_heads
+        self.attention_heads = attention_heads
+        # If not evenly divisible, adjust the combined_dim by padding
+        if self.combined_dim % self.attention_heads != 0:
+            padding_dim = self.attention_heads - (self.combined_dim % self.attention_heads)
+            self.combined_dim += padding_dim
+            self.padding_projection = nn.Linear(
+                self.image_dim + self.text_dim + int(self.metadata_dim * metadata_percentage),
+                self.combined_dim
+            )
+        else:
+            self.padding_projection = None
+            
         self.self_attention1 = MultiHeadSelfAttention(self.combined_dim, attention_heads)
         self.self_attention2 = MultiHeadSelfAttention(self.combined_dim, attention_heads)
         
@@ -266,6 +288,10 @@ class EnhancedCombinedModel(nn.Module):
         
         # Combine features
         combined_features = torch.cat([image_features, text_features, metadata_features], dim=1)
+        
+        # Apply padding projection if necessary to make dimension divisible by num_heads
+        if self.padding_projection is not None:
+            combined_features = self.padding_projection(combined_features)
         
         # Reshape for self-attention (batch_size, seq_length=1, feature_dim)
         combined_features = combined_features.unsqueeze(1)
