@@ -1,0 +1,4 @@
+_target_: utils.custom_loss.HuberMSLELoss
+delta: 1.0
+l2_lambda: 0.01
+alpha: 0.2  # Start with 20% MSLE weighting

@@ -2,13 +2,48 @@ defaults:
     - _self_
     - dataset: default
     - optim: adamw
-    - model: enhanced_combined_model
-    - loss_fn: msle
+    - model: mm_cross_attn_model
+    - loss_fn: huber_l2  # Initial combined loss
 
+# Override default dataset config
+dataset:
+  batch_size: 64  # Recommended for ViT in the report
+  num_workers: 16
+  metadata: ["title", "description"]  # Use both title and description 
+  train_transform: advanced  # Use our enhanced transforms
+
+# Training parameters
 epochs: 30
 log: True
-prefix: ""
+prefix: "MMCA_MSLE_"
 experiment_name: ${prefix}${model.name}_${now:%Y-%m-%d_%H-%M-%S}
+
+# Fine-tuning settings
+fine_tuning:
+  enabled: True
+  start_epoch: 24  # Start fine-tuning at epoch 24 (80% of 30 epochs)
+  lr: 5e-6  # Lower learning rate for fine-tuning
+  loss_fn:
+    _target_: utils.custom_loss.HuberMSLELoss
+    delta: 1.0
+    l2_lambda: 0.005  # Reduced regularization during fine-tuning
+    alpha: 1.0  # Pure MSLE loss (100% weighting)
+
+# Initial learning rate scheduler
+lr_scheduler:
+  _target_: torch.optim.lr_scheduler.CyclicLR
+  base_lr: 3.0e-5
+  max_lr: 1.0e-3
+  step_size_up: 500
+  mode: 'triangular2'
+  cycle_momentum: True
+
+# Override optimizer settings
+optim:
+  _target_: torch.optim.AdamW
+  lr: 3.0e-5  # Starting with lower learning rate as we're using a scheduler
+  betas: [0.9, 0.999]
+  weight_decay: 0.01  # Additional L2 regularization
 
 hydra:
   output_subdir: null
@@ -25,10 +60,7 @@ datamodule:
   metadata: ${dataset.metadata}
 
 data_dir: ${root_dir}/dataset/
-root_dir:  ${hydra:runtime.cwd}
+root_dir: ${hydra:runtime.cwd}
 checkpoint_path: ${root_dir}/checkpoints/${experiment_name}.pt
 
 resume_from_checkpoint: False
-
-
-

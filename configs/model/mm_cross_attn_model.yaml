@@ -1,0 +1,16 @@
+instance:
+  _target_: models.mm_cross_attn_model.MultiModalCrossAttentionNetwork
+  vit_model_name: "google/vit-base-patch16-224"
+  text_model_name: "bert-base-uncased"
+  num_attention_heads: 8
+  img_hidden_dim: 768
+  text_hidden_dim: 768
+  fusion_hidden_dim: 1024
+  final_mlp_layers: [1024, 512, 256, 1]
+  num_channels: 1000  # Will be overridden with actual num_channels from dataset
+  dropout_rate: 0.2
+  freeze_vit: True
+  freeze_text_model: True
+  max_token_length: 128
+
+name: MultiModalCrossAttentionNetwork
