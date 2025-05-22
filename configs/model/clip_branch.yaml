@@ -1,11 +1,12 @@
 instance:
-  _target_: models.clip_branch.CLIPBranchModel
-  clip_mlp_layers: [1024, 1024, 1024, 1]
-  date_mlp_layers: [64, 32, 16, 1]
-  channel_mlp_layers: [128, 64, 32, 1]
+  _target_: models.enhanced_clip_branch.EnhancedCLIPBranchModel
   clip_model_name: "openai/clip-vit-base-patch32"
-  num_channels: 1000  # Will be overridden with actual num_channels from dataset
-  freeze_clip: True
-  dropout_rate: 0.2
+  embed_dim: 512                    # Dimension after modality-specific reduction
+  num_heads: 8                      # Number of attention heads
+  num_channels: 1000                # Will be overridden with actual num_channels from dataset
+  freeze_clip: True                 # Freeze CLIP backbone
+  dropout_rate: 0.1                 # Dropout rate throughout the model
+  metadata_embed_dim: 128           # Dimension for metadata features
+  final_mlp_layers: [1024, 1024, 1024, 1]  # Final MLP architecture
 
-name: CLIPBranchModel
+name: EnhancedCLIPBranchModel

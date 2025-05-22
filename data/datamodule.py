@@ -24,7 +24,23 @@ class DataModule:
         self.metadata = metadata
         self.random_seed = 42
         self.val_split = 0.2
+        
+        # Initialize the global channel mapping by creating train dataset first
+        self._setup_global_channel_mapping()
         self._setup_indices()
+
+    def _setup_global_channel_mapping(self):
+        """Create a consistent channel mapping across all splits"""
+        # Create training dataset to establish global channel mapping
+        temp_train_set = Dataset(
+            self.dataset_path,
+            "train_val",
+            transforms=self.train_transform,
+            metadata=self.metadata,
+        )
+        self.global_channel_mapping = temp_train_set.get_channel_mapping()
+        self.num_channels = temp_train_set.get_num_channels()
+        print(f"Global channel mapping established with {self.num_channels} channels")
 
     def _setup_indices(self):
         """Prépare les indices pour les ensembles train et validation."""
@@ -53,6 +69,7 @@ class DataModule:
             "train_val",
             transforms=self.train_transform,
             metadata=self.metadata,
+            global_channel_mapping=self.global_channel_mapping,
         )
 
         train_dataset = torch.utils.data.Subset(train_set, self.train_indices)
@@ -71,8 +88,9 @@ class DataModule:
         val_set = Dataset(
             self.dataset_path,
             "train_val",
-            transforms=self.test_transform,
+            transforms=self.test_transform,  # Use test transforms for validation
             metadata=self.metadata,
+            global_channel_mapping=self.global_channel_mapping,
         )
 
         validation_dataset = torch.utils.data.Subset(val_set, self.val_indices)
@@ -91,6 +109,7 @@ class DataModule:
             "test",
             transforms=self.test_transform,
             metadata=self.metadata,
+            global_channel_mapping=self.global_channel_mapping,
         )
         return DataLoader(
             dataset,
@@ -98,3 +117,7 @@ class DataModule:
             shuffle=False,
             num_workers=self.num_workers,
         )
+    
+    def get_num_channels(self):
+        """Return the number of channels from global mapping"""
+        return self.num_channels

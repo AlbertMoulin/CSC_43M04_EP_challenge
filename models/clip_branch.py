@@ -2,182 +2,376 @@ import torch
 import torch.nn as nn
 from transformers import CLIPModel, CLIPProcessor
 import datetime
-import re
+import math
 
-class CLIPBranchModel(nn.Module):
+class MultiHeadCrossAttention(nn.Module):
     """
-    Model with three separate branches:
-    1. CLIP branch for image and text
-    2. Date branch
-    3. Channel branch
-    
-    Each branch makes its own prediction, then all predictions are combined with
-    learnable weights.
+    Multi-head cross-attention mechanism for inter-modal alignment
+    """
+    def __init__(self, embed_dim, num_heads, dropout=0.1):
+        super().__init__()
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
+        self.head_dim = embed_dim // num_heads
+        assert self.head_dim * num_heads == embed_dim, "embed_dim must be divisible by num_heads"
+        
+        self.query = nn.Linear(embed_dim, embed_dim)
+        self.key = nn.Linear(embed_dim, embed_dim)
+        self.value = nn.Linear(embed_dim, embed_dim)
+        
+        self.proj = nn.Linear(embed_dim, embed_dim)
+        self.dropout = nn.Dropout(dropout)
+        self.layer_norm = nn.LayerNorm(embed_dim)
+        
+    def forward(self, query, key, value):
+        batch_size = query.size(0)
+        
+        # Apply layer normalization
+        residual = query
+        query = self.layer_norm(query)
+        
+        # Linear projections and reshape for multi-head attention
+        q = self.query(query).view(batch_size, 1, self.num_heads, self.head_dim).transpose(1, 2)
+        k = self.key(key).view(batch_size, 1, self.num_heads, self.head_dim).transpose(1, 2)
+        v = self.value(value).view(batch_size, 1, self.num_heads, self.head_dim).transpose(1, 2)
+        
+        # Attention scores
+        scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.head_dim)
+        attn_weights = torch.softmax(scores, dim=-1)
+        attn_weights = self.dropout(attn_weights)
+        
+        # Apply attention to values
+        attn_output = torch.matmul(attn_weights, v)
+        attn_output = attn_output.transpose(1, 2).contiguous().view(batch_size, self.embed_dim)
+        
+        # Final projection and residual connection
+        output = self.proj(attn_output)
+        output = self.dropout(output) + residual
+        
+        return output
+
+class SelfAttentionBlock(nn.Module):
+    """
+    Self-attention block for intra-modal processing
+    """
+    def __init__(self, embed_dim, num_heads, dropout=0.1):
+        super().__init__()
+        self.self_attn = nn.MultiheadAttention(embed_dim, num_heads, dropout=dropout, batch_first=True)
+        self.norm1 = nn.LayerNorm(embed_dim)
+        self.norm2 = nn.LayerNorm(embed_dim)
+        self.dropout = nn.Dropout(dropout)
+        
+        # Feed-forward network
+        self.ffn = nn.Sequential(
+            nn.Linear(embed_dim, embed_dim * 4),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(embed_dim * 4, embed_dim)
+        )
+        
+    def forward(self, x):
+        # Self-attention with residual connection
+        x_norm = self.norm1(x)
+        attn_out, _ = self.self_attn(x_norm, x_norm, x_norm)
+        x = x + self.dropout(attn_out)
+        
+        # Feed-forward with residual connection
+        x_norm = self.norm2(x)
+        ffn_out = self.ffn(x_norm)
+        x = x + self.dropout(ffn_out)
+        
+        return x
+
+class SqueezeExcitationNetwork(nn.Module):
+    """
+    Squeeze-and-Excitation Network for channel-wise feature recalibration
+    """
+    def __init__(self, embed_dim, reduction_ratio=16):
+        super().__init__()
+        self.global_pool = nn.AdaptiveAvgPool1d(1)
+        self.fc = nn.Sequential(
+            nn.Linear(embed_dim, embed_dim // reduction_ratio),
+            nn.ReLU(inplace=True),
+            nn.Linear(embed_dim // reduction_ratio, embed_dim),
+            nn.Sigmoid()
+        )
+        
+    def forward(self, x):
+        # x shape: (batch_size, embed_dim)
+        # Add sequence dimension for pooling
+        x_expanded = x.unsqueeze(-1)  # (batch_size, embed_dim, 1)
+        
+        # Global average pooling
+        pooled = self.global_pool(x_expanded).squeeze(-1)  # (batch_size, embed_dim)
+        
+        # Channel attention weights
+        weights = self.fc(pooled)  # (batch_size, embed_dim)
+        
+        # Apply attention weights
+        return x * weights
+
+class AdaptiveGatingMechanism(nn.Module):
+    """
+    Adaptive gating mechanism for dynamic modality weighting
+    """
+    def __init__(self, embed_dim, num_modalities):
+        super().__init__()
+        self.num_modalities = num_modalities
+        self.gate_network = nn.Sequential(
+            nn.Linear(embed_dim * num_modalities, embed_dim),
+            nn.GELU(),
+            nn.Dropout(0.1),
+            nn.Linear(embed_dim, num_modalities),
+            nn.Softmax(dim=-1)
+        )
+        
+    def forward(self, *modality_features):
+        # Concatenate all modality features
+        combined = torch.cat(modality_features, dim=-1)
+        
+        # Compute gating weights
+        gates = self.gate_network(combined)
+        
+        # Apply gates to each modality
+        gated_features = []
+        for i, features in enumerate(modality_features):
+            gated = features * gates[:, i:i+1]
+            gated_features.append(gated)
+            
+        return torch.stack(gated_features, dim=1).sum(dim=1)
+
+class EnhancedCLIPBranchModel(nn.Module):
+    """
+    Enhanced CLIP Branch Model with hierarchical multimodal fusion:
+    1. Self-attention intra-modal processing
+    2. Cross-attention inter-modal alignment  
+    3. Squeeze-and-Excitation feature enhancement
+    4. Adaptive gating for dynamic fusion
+    5. Separate PCA-like dimensionality reduction for each modality
     """
     def __init__(
         self, 
-        clip_mlp_layers=[1024, 512, 256, 1], 
-        date_mlp_layers=[64, 32, 16, 1],
-        channel_mlp_layers=[128, 64, 32, 1],
         clip_model_name="openai/clip-vit-base-patch32",
+        embed_dim=512,
+        num_heads=8,
         num_channels=1000,
         freeze_clip=True,
-        dropout_rate=0.2
+        dropout_rate=0.1,
+        metadata_embed_dim=128,
+        final_mlp_layers=[1024, 512, 256, 1]
     ):
         super().__init__()
         
-        # Load the CLIP model
+        # Load CLIP model
         self.clip = CLIPModel.from_pretrained(clip_model_name)
         self.processor = CLIPProcessor.from_pretrained(clip_model_name)
         
-        # Freeze CLIP parameters if specified
         if freeze_clip:
             for param in self.clip.parameters():
                 param.requires_grad = False
         
-        # Get CLIP dimension
-        clip_dim = self.clip.config.projection_dim  # Typically 512 for base model
+        # Get original CLIP dimensions
+        clip_dim = self.clip.config.projection_dim  # Usually 512
         
-        # 1. CLIP branch MLP
-        clip_layers = []
-        input_dim = clip_dim * 2  # Combined image and text features
+        # === Modality-specific dimensionality reduction (inspired by V4 strategy) ===
+        self.image_reducer = nn.Sequential(
+            nn.Linear(clip_dim, embed_dim),
+            nn.LayerNorm(embed_dim),
+            nn.GELU(),
+            nn.Dropout(dropout_rate)
+        )
         
-        for output_dim in clip_mlp_layers[:-1]:
-            clip_layers.append(nn.Linear(input_dim, output_dim))
-            clip_layers.append(nn.LayerNorm(output_dim))
-            clip_layers.append(nn.GELU())
-            clip_layers.append(nn.Dropout(dropout_rate))
-            input_dim = output_dim
+        self.text_reducer = nn.Sequential(
+            nn.Linear(clip_dim, embed_dim),
+            nn.LayerNorm(embed_dim),
+            nn.GELU(),
+            nn.Dropout(dropout_rate)
+        )
         
-        clip_layers.append(nn.Linear(input_dim, clip_mlp_layers[-1]))
-        self.clip_mlp = nn.Sequential(*clip_layers)
+        # === Self-attention for intra-modal processing ===
+        self.image_self_attn = SelfAttentionBlock(embed_dim, num_heads, dropout_rate)
+        self.text_self_attn = SelfAttentionBlock(embed_dim, num_heads, dropout_rate)
         
-        # 2. Date branch MLP
-        date_layers = []
-        input_dim = 5  # 5 date features
+        # === Cross-attention for inter-modal alignment ===
+        self.image_to_text_attn = MultiHeadCrossAttention(embed_dim, num_heads, dropout_rate)
+        self.text_to_image_attn = MultiHeadCrossAttention(embed_dim, num_heads, dropout_rate)
         
-        for output_dim in date_mlp_layers[:-1]:
-            date_layers.append(nn.Linear(input_dim, output_dim))
-            date_layers.append(nn.LayerNorm(output_dim))
-            date_layers.append(nn.GELU())
-            date_layers.append(nn.Dropout(dropout_rate))
-            input_dim = output_dim
+        # === Squeeze-and-Excitation for feature enhancement ===
+        self.image_senet = SqueezeExcitationNetwork(embed_dim)
+        self.text_senet = SqueezeExcitationNetwork(embed_dim)
+        self.metadata_senet = SqueezeExcitationNetwork(metadata_embed_dim)
         
-        date_layers.append(nn.Linear(input_dim, date_mlp_layers[-1]))
-        self.date_mlp = nn.Sequential(*date_layers)
+        # === Metadata processing ===
+        # Date features
+        self.date_mlp = nn.Sequential(
+            nn.Linear(5, 64),
+            nn.LayerNorm(64),
+            nn.GELU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(64, 64)
+        )
         
-        # 3. Channel branch
+        # Channel embedding
         self.channel_embedding = nn.Embedding(num_channels, 64)
         
-        channel_layers = []
-        input_dim = 64  # Channel embedding dimension
+        # Metadata fusion
+        self.metadata_fusion = nn.Sequential(
+            nn.Linear(128, metadata_embed_dim),  # 64 + 64
+            nn.LayerNorm(metadata_embed_dim),
+            nn.GELU(),
+            nn.Dropout(dropout_rate)
+        )
         
-        for output_dim in channel_mlp_layers[:-1]:
-            channel_layers.append(nn.Linear(input_dim, output_dim))
-            channel_layers.append(nn.LayerNorm(output_dim))
-            channel_layers.append(nn.GELU())
-            channel_layers.append(nn.Dropout(dropout_rate))
+        # === Adaptive gating mechanism ===
+        self.adaptive_gating = AdaptiveGatingMechanism(
+            embed_dim=embed_dim, 
+            num_modalities=2  # image and text
+        )
+        
+        # === Final fusion and prediction ===
+        # Cross Network for explicit feature interactions
+        self.cross_network = CrossNetwork(
+            input_dim=embed_dim * 2 + metadata_embed_dim,  # fused image-text + metadata
+            num_layers=3
+        )
+        
+        # Final MLP
+        layers = []
+        input_dim = embed_dim * 2 + metadata_embed_dim
+        
+        for output_dim in final_mlp_layers[:-1]:
+            layers.extend([
+                nn.Linear(input_dim, output_dim),
+                nn.LayerNorm(output_dim),
+                nn.GELU(),
+                nn.Dropout(dropout_rate)
+            ])
             input_dim = output_dim
-        
-        channel_layers.append(nn.Linear(input_dim, channel_mlp_layers[-1]))
-        self.channel_mlp = nn.Sequential(*channel_layers)
-        
-        # Learnable weights for combining predictions
-        self.weight_clip = nn.Parameter(torch.tensor(0.33))
-        self.weight_date = nn.Parameter(torch.tensor(0.33))
-        self.weight_channel = nn.Parameter(torch.tensor(0.34))
+            
+        layers.append(nn.Linear(input_dim, final_mlp_layers[-1]))
+        self.final_mlp = nn.Sequential(*layers)
     
     def _parse_date(self, date_str):
-        """
-        Parse date string into numerical features.
-        Returns tensor with [year, month, day, day_of_week, hour]
-        """
+        """Parse date string into numerical features"""
         try:
-            # Try to handle full ISO format with time and timezone
-            # First remove the timezone part if it exists
             if '+' in date_str:
                 date_str = date_str.split('+')[0]
             
-            # Try different date formats
             try:
-                # Try format with time: "YYYY-MM-DD HH:MM:SS"
                 date_obj = datetime.datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
             except ValueError:
                 try:
-                    # Try ISO format: "YYYY-MM-DDTHH:MM:SS"
                     date_obj = datetime.datetime.strptime(date_str, "%Y-%m-%dT%H:%M:%S")
                 except ValueError:
-                    # Try just date: "YYYY-MM-DD"
                     date_obj = datetime.datetime.strptime(date_str, "%Y-%m-%d")
         
-            # Extract features (normalized)
-            year = (date_obj.year - 2005) / 20  # Normalize years since YouTube's founding
-            month = (date_obj.month - 1) / 11   # 0-11
-            day = (date_obj.day - 1) / 30       # 0-30
-            day_of_week = date_obj.weekday() / 6  # 0-6
-            hour = date_obj.hour / 23           # 0-23
+            # Normalized features
+            year = (date_obj.year - 2005) / 20
+            month = (date_obj.month - 1) / 11
+            day = (date_obj.day - 1) / 30
+            day_of_week = date_obj.weekday() / 6
+            hour = date_obj.hour / 23
             
             return torch.tensor([year, month, day, day_of_week, hour], dtype=torch.float32)
         
         except Exception as e:
-            # If all parsing fails, return default values
             print(f"Error parsing date '{date_str}': {e}")
             return torch.tensor([0.0, 0.0, 0.0, 0.0, 0.0], dtype=torch.float32)
     
     def forward(self, batch):
-        # Extract components from batch
         images = batch["image"]
         raw_text = batch["text"]
-        batch_size = images.shape[0]
         device = images.device
         
-        # 1. CLIP branch - Process images and text with CLIP
+        # === CLIP feature extraction ===
         with torch.no_grad() if not self.clip.training else torch.enable_grad():
-            # Get image embeddings
+            # Image features
             image_features = self.clip.get_image_features(images)
             
-            # Process text with CLIP tokenizer and get embeddings
+            # Text features
             clip_text_inputs = self.processor(
                 text=list(raw_text),
                 return_tensors="pt",
                 padding=True,
                 truncation=True,
-                max_length=77  # CLIP's default max length
+                max_length=77
             ).to(device)
-            
             text_features = self.clip.get_text_features(**clip_text_inputs)
         
-        # Normalize features as in CLIP
+        # Normalize CLIP features
         image_features = image_features / image_features.norm(dim=1, keepdim=True)
         text_features = text_features / text_features.norm(dim=1, keepdim=True)
         
-        # Concatenate CLIP features and get prediction
-        clip_combined = torch.cat([image_features, text_features], dim=1)
-        clip_prediction = self.clip_mlp(clip_combined)
+        # === Modality-specific dimensionality reduction (V4 strategy) ===
+        image_reduced = self.image_reducer(image_features)
+        text_reduced = self.text_reducer(text_features)
         
-        # 2. Date branch
+        # === Self-attention for intra-modal processing ===
+        # Add sequence dimension for self-attention
+        image_attended = self.image_self_attn(image_reduced.unsqueeze(1)).squeeze(1)
+        text_attended = self.text_self_attn(text_reduced.unsqueeze(1)).squeeze(1)
+        
+        # === Cross-attention for inter-modal alignment ===
+        image_cross = self.image_to_text_attn(image_attended, text_attended, text_attended)
+        text_cross = self.text_to_image_attn(text_attended, image_attended, image_attended)
+        
+        # === Squeeze-and-Excitation enhancement ===
+        image_enhanced = self.image_senet(image_cross)
+        text_enhanced = self.text_senet(text_cross)
+        
+        # === Adaptive gating for dynamic fusion ===
+        fused_visual_text = self.adaptive_gating(image_enhanced, text_enhanced)
+        
+        # === Metadata processing ===
+        # Date features
         date_features = []
         for date_str in batch["date"]:
             date_features.append(self._parse_date(date_str))
         date_features = torch.stack(date_features).to(device)
-        date_prediction = self.date_mlp(date_features)
+        date_emb = self.date_mlp(date_features)
         
-        # 3. Channel branch
+        # Channel features
         channel_ids = batch["channel_id"].to(device)
         channel_emb = self.channel_embedding(channel_ids)
-        channel_prediction = self.channel_mlp(channel_emb)
         
-        # Normalize weights to sum to 1 using softmax
-        weights = torch.softmax(
-            torch.stack([self.weight_clip, self.weight_date, self.weight_channel]), 
-            dim=0
-        )
+        # Fuse metadata
+        metadata_combined = torch.cat([date_emb, channel_emb], dim=1)
+        metadata_features = self.metadata_fusion(metadata_combined)
+        metadata_enhanced = self.metadata_senet(metadata_features)
         
-        # Combine predictions using normalized weights
-        combined_prediction = (
-            weights[0] * clip_prediction + 
-            weights[1] * date_prediction + 
-            weights[2] * channel_prediction
-        )
+        # === Final feature combination ===
+        # Concatenate enhanced image, text, and metadata features
+        combined_features = torch.cat([
+            image_enhanced, 
+            text_enhanced, 
+            metadata_enhanced
+        ], dim=1)
         
-        return combined_prediction
+        # === Cross Network for explicit interactions ===
+        cross_output = self.cross_network(combined_features)
+        
+        # === Final prediction ===
+        # Combine original features with cross network output
+        final_input = combined_features + cross_output
+        output = self.final_mlp(final_input)
+        
+        return output
+
+class CrossNetwork(nn.Module):
+    """
+    Cross Network for modeling explicit feature interactions
+    """
+    def __init__(self, input_dim, num_layers=3):
+        super().__init__()
+        self.num_layers = num_layers
+        self.cross_layers = nn.ModuleList([
+            nn.Linear(input_dim, input_dim, bias=True) for _ in range(num_layers)
+        ])
+        
+    def forward(self, x0):
+        x = x0
+        for layer in self.cross_layers:
+            # Cross interaction: x_{l+1} = x_0 * (W_l * x_l + b_l) + x_l
+            cross_term = layer(x)  # W_l * x_l + b_l
+            x = x0 * cross_term + x  # x_0 * cross_term + x_l
+        return x
