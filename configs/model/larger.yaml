@@ -1,0 +1,9 @@
+instance:
+  _target_: models.larger.PerfectChannelModel
+  dinov2_frozen: True
+  bert_frozen: True
+  max_token_length: 512
+  text_model_name: 'bert-base-uncased'
+  dataset_path: ${data_dir}
+
+name: PERFECT_CHANNEL
