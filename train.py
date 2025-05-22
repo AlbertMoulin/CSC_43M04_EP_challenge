@@ -10,7 +10,7 @@ from utils.sanity import show_images
 @hydra.main(config_path="configs", config_name="train")
 def train(cfg):
     config = {"metadata":cfg.dataset.metadata, "epochs":cfg.epochs, "batch_size":cfg.dataset.batch_size, "lr":cfg.optim.lr, "dropout":cfg.model.instance.dropout, "hidden_dim":cfg.model.instance.hidden_dim, 
-              "num_layers":cfg.model.instance.num_layers, "validation_split":cfg.dataset.validation_split, "validation_set":cfg.dataset.validation_set}
+              "num_layers":cfg.model.instance.num_layers, "validation_split":cfg.dataset.validation_split, "validation_set_type":cfg.dataset.validation_set_type}
     logger = (
         wandb.init(project="challenge_CSC_43M04_EP", name=cfg.experiment_name,config=config)
         if cfg.log
@@ -19,7 +19,7 @@ def train(cfg):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = hydra.utils.instantiate(cfg.model.instance).to(device)
     encoder = hydra.utils.instantiate(cfg.encoder.instance).to(device)
-    fusion = hydra.utils.instantiate(cfg.fusion.instance)
+    fusion = hydra.utils.instantiate(cfg.fusion.instance).to(device)
     optimizer = hydra.utils.instantiate(cfg.optim, params=model.parameters())
     loss_fn = hydra.utils.instantiate(cfg.loss_fn)
     datamodule = hydra.utils.instantiate(cfg.datamodule)
@@ -50,7 +50,7 @@ def train(cfg):
             batch["input_ids"] = batch["input_ids"].to(device)
             batch["attention_mask"] = batch["attention_mask"].to(device)
 
-            image_embed,tex_embed = encoder(batch["image"],batch["text"])
+            image_embed,tex_embed = encoder(batch)
             fused = fusion(image_embed,tex_embed)
             preds = model(fused).squeeze()
             loss = loss_fn(preds, batch["target"])
@@ -88,7 +88,7 @@ def train(cfg):
                 batch["target"] = batch["target"].to(device).squeeze()
                 batch["input_ids"] = batch["input_ids"].to(device)
                 batch["attention_mask"] = batch["attention_mask"].to(device)     
-                image_embed,tex_embed = encoder(batch["image"],batch["text"])
+                image_embed,tex_embed = encoder(batch)
                 fused = fusion(image_embed,tex_embed)
                 with torch.no_grad():
                     preds = model(fused).squeeze()

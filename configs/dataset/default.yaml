@@ -6,4 +6,4 @@ batch_size: 32
 num_workers: 16
 metadata: ["title","channel","date"]
 validation_split: 0.2
-validation_set: "random"
+validation_set_type: "newest"

@@ -1,13 +1,13 @@
 defaults:
     - _self_
     - dataset: default
-    - encoder: clip        
-    - fusion: concat       
+    - encoder: bertdino      
+    - fusion: concat   
     - model: mlp_regressor 
     - loss_fn: msle
     - optim: adamw
 
-epochs: 7
+epochs: 20
 log: True
 prefix: ""
 experiment_name: ${prefix}${model.name}_${now:%Y-%m-%d_%H-%M-%S}
