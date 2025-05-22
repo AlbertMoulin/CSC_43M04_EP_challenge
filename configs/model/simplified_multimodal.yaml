@@ -1,5 +1,5 @@
 instance:
-  _target_: models.simplified_multimodal.UltraSimpleModel
+  _target_: models.simplified_multimodal.EnhancedPhase1LargeMLP
   dinov2_frozen: True
   bert_frozen: True
   max_token_length: 128
