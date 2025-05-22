@@ -5,22 +5,15 @@ import datetime
 import re
 
 class CLIPBranchModel(nn.Module):
-    """
-    Model with three separate branches:
-    1. CLIP branch for image and text
-    2. Date branch
-    3. Channel branch
-    
-    Each branch makes its own prediction, then all predictions are combined with
-    learnable weights.
-    """
     def __init__(
         self, 
-        clip_mlp_layers=[1024, 512, 256, 1], 
-        date_mlp_layers=[64, 32, 16, 1],
-        channel_mlp_layers=[128, 64, 32, 1],
+        # These lists should define HIDDEN layers, and the last layer (outputting 1)
+        # will be added separately.
+        clip_mlp_layers=[1024, 512, 256], # Define hidden layer dimensions
+        date_mlp_layers=[64, 32, 16],     # Define hidden layer dimensions
+        channel_mlp_layers=[128, 64, 32], # Define hidden layer dimensions
         clip_model_name="openai/clip-vit-base-patch32",
-        num_channels=1000,
+        num_channels=1000, 
         freeze_clip=True,
         dropout_rate=0.2
     ):
@@ -40,46 +33,48 @@ class CLIPBranchModel(nn.Module):
         
         # 1. CLIP branch MLP
         clip_layers = []
-        input_dim = clip_dim * 2  # Combined image and text features
+        input_dim_clip = clip_dim * 2  # Combined image and text features
         
-        for output_dim in clip_mlp_layers[:-1]:
-            clip_layers.append(nn.Linear(input_dim, output_dim))
+        # Iterate through specified hidden layer dimensions
+        for output_dim in clip_mlp_layers:
+            clip_layers.append(nn.Linear(input_dim_clip, output_dim))
             clip_layers.append(nn.LayerNorm(output_dim))
             clip_layers.append(nn.GELU())
             clip_layers.append(nn.Dropout(dropout_rate))
-            input_dim = output_dim
+            input_dim_clip = output_dim
         
-        clip_layers.append(nn.Linear(input_dim, clip_mlp_layers[-1]))
+        # Add the final output layer (to produce a single scalar prediction per branch)
+        clip_layers.append(nn.Linear(input_dim_clip, 1)) 
         self.clip_mlp = nn.Sequential(*clip_layers)
         
         # 2. Date branch MLP
         date_layers = []
-        input_dim = 5  # 5 date features
+        input_dim_date = 8 # year, month, day, day_of_week, hour, day_of_year, is_weekend, quarter
         
-        for output_dim in date_mlp_layers[:-1]:
-            date_layers.append(nn.Linear(input_dim, output_dim))
+        for output_dim in date_mlp_layers:
+            date_layers.append(nn.Linear(input_dim_date, output_dim))
             date_layers.append(nn.LayerNorm(output_dim))
             date_layers.append(nn.GELU())
             date_layers.append(nn.Dropout(dropout_rate))
-            input_dim = output_dim
+            input_dim_date = output_dim
         
-        date_layers.append(nn.Linear(input_dim, date_mlp_layers[-1]))
+        date_layers.append(nn.Linear(input_dim_date, 1)) # Final output layer
         self.date_mlp = nn.Sequential(*date_layers)
         
         # 3. Channel branch
-        self.channel_embedding = nn.Embedding(num_channels, 64)
+        self.channel_embedding = nn.Embedding(num_channels, 64) 
         
         channel_layers = []
-        input_dim = 64  # Channel embedding dimension
+        input_dim_channel = 64  # Channel embedding dimension
         
-        for output_dim in channel_mlp_layers[:-1]:
-            channel_layers.append(nn.Linear(input_dim, output_dim))
+        for output_dim in channel_mlp_layers:
+            channel_layers.append(nn.Linear(input_dim_channel, output_dim))
             channel_layers.append(nn.LayerNorm(output_dim))
             channel_layers.append(nn.GELU())
             channel_layers.append(nn.Dropout(dropout_rate))
-            input_dim = output_dim
+            input_dim_channel = output_dim
         
-        channel_layers.append(nn.Linear(input_dim, channel_mlp_layers[-1]))
+        channel_layers.append(nn.Linear(input_dim_channel, 1)) # Final output layer
         self.channel_mlp = nn.Sequential(*channel_layers)
         
         # Learnable weights for combining predictions
@@ -88,84 +83,93 @@ class CLIPBranchModel(nn.Module):
         self.weight_channel = nn.Parameter(torch.tensor(0.34))
     
     def _parse_date(self, date_str):
+        # ... (as previously defined, assuming this part is correct) ...
         """
         Parse date string into numerical features.
-        Returns tensor with [year, month, day, day_of_week, hour]
+        Returns tensor with [year, month, day, day_of_week, hour, day_of_year, is_weekend, quarter]
         """
         try:
-            # Try to handle full ISO format with time and timezone
-            # First remove the timezone part if it exists
-            if '+' in date_str:
-                date_str = date_str.split('+')[0]
+            # First, clean the date string: remove timezone info like '+00:00' or 'Z'
+            date_str = re.sub(r'[Zz\+\-][0-9\:]+$', '', date_str).strip()
             
             # Try different date formats
-            try:
-                # Try format with time: "YYYY-MM-DD HH:MM:SS"
-                date_obj = datetime.datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
-            except ValueError:
-                try:
-                    # Try ISO format: "YYYY-MM-DDTHH:MM:SS"
-                    date_obj = datetime.datetime.strptime(date_str, "%Y-%m-%dT%H:%M:%S")
-                except ValueError:
-                    # Try just date: "YYYY-MM-DD"
-                    date_obj = datetime.datetime.strptime(date_str, "%Y-%m-%d")
-        
-            # Extract features (normalized)
-            year = (date_obj.year - 2005) / 20  # Normalize years since YouTube's founding
-            month = (date_obj.month - 1) / 11   # 0-11
-            day = (date_obj.day - 1) / 30       # 0-30
-            day_of_week = date_obj.weekday() / 6  # 0-6
-            hour = date_obj.hour / 23           # 0-23
+            date_obj = None
+            formats_to_try = [
+                "%Y-%m-%d %H:%M:%S",  # "YYYY-MM-DD HH:MM:SS"
+                "%Y-%m-%dT%H:%M:%S", # "YYYY-MM-DDTHH:MM:SS" (ISO format)
+                "%Y-%m-%d %H:%M",    # "YYYY-MM-DD HH:MM"
+                "%Y-%m-%d",         # "YYYY-MM-DD"
+                "%Y/%m/%d %H:%M:%S", # "YYYY/MM/DD HH:MM:SS"
+                "%Y/%m/%d",         # "YYYY/MM/DD"
+            ]
             
-            return torch.tensor([year, month, day, day_of_week, hour], dtype=torch.float32)
+            for fmt in formats_to_try:
+                try:
+                    date_obj = datetime.datetime.strptime(date_str, fmt)
+                    break
+                except ValueError:
+                    continue
+            
+            if date_obj is None:
+                # Fallback for very minimal date: "YYYY-MM-DD" (from your Dataset's default)
+                try:
+                    date_obj = datetime.datetime.strptime(date_str.split(' ')[0], "%Y-%m-%d")
+                except ValueError:
+                    raise ValueError(f"No matching format found for date string: '{date_str}'")
+
+            # Extract features (normalized for neural network inputs)
+            year = (date_obj.year - 2005) / 20 # Assuming years between ~2005-2025
+            month = (date_obj.month - 1) / 11 
+            day = (date_obj.day - 1) / 30     
+            day_of_week = date_obj.weekday() / 6 
+            hour = date_obj.hour / 23          
+            day_of_year = (date_obj.timetuple().tm_yday - 1) / 365 
+            is_weekend = float(date_obj.weekday() >= 5) 
+            quarter = (date_obj.month - 1) // 3 / 3 
+
+            return torch.tensor([year, month, day, day_of_week, hour, day_of_year, is_weekend, quarter], dtype=torch.float32)
         
         except Exception as e:
-            # If all parsing fails, return default values
-            print(f"Error parsing date '{date_str}': {e}")
-            return torch.tensor([0.0, 0.0, 0.0, 0.0, 0.0], dtype=torch.float32)
+            # If all parsing fails, return default (zero) values.
+            print(f"Warning: Error parsing date '{date_str}': {e}. Returning zeros for date features.")
+            return torch.tensor([0.0] * 8, dtype=torch.float32)
     
     def forward(self, batch):
-        # Extract components from batch
         images = batch["image"]
         raw_text = batch["text"]
-        batch_size = images.shape[0]
         device = images.device
         
-        # 1. CLIP branch - Process images and text with CLIP
-        with torch.no_grad() if not self.clip.training else torch.enable_grad():
-            # Get image embeddings
+        # 1. CLIP branch
+        with torch.no_grad() if not self.clip.training and self.training else torch.enable_grad():
             image_features = self.clip.get_image_features(images)
             
-            # Process text with CLIP tokenizer and get embeddings
             clip_text_inputs = self.processor(
                 text=list(raw_text),
                 return_tensors="pt",
                 padding=True,
                 truncation=True,
-                max_length=77  # CLIP's default max length
+                max_length=77
             ).to(device)
             
             text_features = self.clip.get_text_features(**clip_text_inputs)
         
-        # Normalize features as in CLIP
         image_features = image_features / image_features.norm(dim=1, keepdim=True)
         text_features = text_features / text_features.norm(dim=1, keepdim=True)
         
-        # Concatenate CLIP features and get prediction
         clip_combined = torch.cat([image_features, text_features], dim=1)
-        clip_prediction = self.clip_mlp(clip_combined)
+        clip_prediction = self.clip_mlp(clip_combined) # This should now output (batch_size, 1)
         
         # 2. Date branch
         date_features = []
         for date_str in batch["date"]:
             date_features.append(self._parse_date(date_str))
         date_features = torch.stack(date_features).to(device)
-        date_prediction = self.date_mlp(date_features)
+        date_prediction = self.date_mlp(date_features) # This should now output (batch_size, 1)
         
         # 3. Channel branch
         channel_ids = batch["channel_id"].to(device)
         channel_emb = self.channel_embedding(channel_ids)
-        channel_prediction = self.channel_mlp(channel_emb)
+        channel_prediction = self.channel_mlp(channel_emb) # This should now output (batch_size, 1)
         
         # Normalize weights to sum to 1 using softmax
         weights = torch.softmax(

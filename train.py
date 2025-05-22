@@ -53,7 +53,7 @@ def train(cfg):
     start_epoch = 0
     if cfg.resume_from_checkpoint:
         print(f"Loading checkpoint from {cfg.resume_from_checkpoint}")
-        checkpoint = torch.load(cfg.resume_from_checkpoint)
+        checkpoint = torch.load(cfg.resume_from_checkpoint, weights_only=False)
         
         # If you saved more than just model weights (like optimizer state)
         if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:

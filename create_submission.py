@@ -36,7 +36,7 @@ def create_submission(cfg):
     model = hydra.utils.instantiate(cfg.model.instance).to(device)
     
     # Load checkpoint
-    checkpoint = torch.load(r'checkpoints/EnhancedCombinedModel_2025-05-16_best.pt', weights_only=False)
+    checkpoint = torch.load(r'checkpoints/CLIPBranchModel_2025-05-22_00-25-42_best.pt', weights_only=False)
     model_state_dict = checkpoint['model_state_dict']
     print(f"Loading model from checkpoint")
     model.load_state_dict(model_state_dict)

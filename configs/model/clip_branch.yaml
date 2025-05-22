@@ -1,10 +1,10 @@
 instance:
   _target_: models.clip_branch.CLIPBranchModel
-  clip_mlp_layers: [1024, 1024, 1024, 1]
-  date_mlp_layers: [64, 32, 16, 1]
-  channel_mlp_layers: [128, 64, 32, 1]
+  clip_mlp_layers: [1024, 1024, 1024] # Removed the final '1'
+  date_mlp_layers: [64, 32, 16]      # Removed the final '1'
+  channel_mlp_layers: [128, 64, 32]  # Removed the final '1'
   clip_model_name: "openai/clip-vit-base-patch32"
-  num_channels: 1000  # Will be overridden with actual num_channels from dataset
+  num_channels: 20000 
   freeze_clip: True
   dropout_rate: 0.2
 
