@@ -1,7 +1,4 @@
-import pandas as pd
-import torch
-
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader
 
 from data.dataset import Dataset
 
@@ -22,45 +19,6 @@ class DataModule:
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.metadata = metadata
-        self.random_seed = 42
-        self.val_split = 0.2
-        
-        # Initialize the global channel mapping by creating train dataset first
-        self._setup_global_channel_mapping()
-        self._setup_indices()
-
-    def _setup_global_channel_mapping(self):
-        """Create a consistent channel mapping across all splits"""
-        # Create training dataset to establish global channel mapping
-        temp_train_set = Dataset(
-            self.dataset_path,
-            "train_val",
-            transforms=self.train_transform,
-            metadata=self.metadata,
-        )
-        self.global_channel_mapping = temp_train_set.get_channel_mapping()
-        self.num_channels = temp_train_set.get_num_channels()
-        print(f"Global channel mapping established with {self.num_channels} channels")
-
-    def _setup_indices(self):
-        """Prépare les indices pour les ensembles train et validation."""
-        # Charger les données pour obtenir le nombre total d'échantillons
-        df = pd.read_csv(f"{self.dataset_path}/train_val.csv")
-        dataset_size = len(df)
-        
-        # Calculer la taille de l'ensemble de validation
-        val_size = int(self.val_split * dataset_size)
-        train_size = dataset_size - val_size
-        
-        # Créer un générateur avec une graine fixe pour la reproductibilité
-        generator = torch.Generator().manual_seed(self.random_seed)
-        
-        # Générer les indices pour train et val
-        self.train_indices, self.val_indices = random_split(
-            range(dataset_size), 
-            [train_size, val_size],
-            generator=generator
-        )
 
     def train_dataloader(self):
         """Train dataloader."""
@@ -69,38 +27,19 @@ class DataModule:
             "train_val",
             transforms=self.train_transform,
             metadata=self.metadata,
-            global_channel_mapping=self.global_channel_mapping,
         )
-
-        train_dataset = torch.utils.data.Subset(train_set, self.train_indices)
-
         return DataLoader(
-            train_dataset,
+            train_set,
             batch_size=self.batch_size,
             shuffle=True,
             num_workers=self.num_workers,
         )
 
     def val_dataloader(self):
-        """
+        """TODO: 
         Implement a strategy to create a validation set from the train set.
         """
-        val_set = Dataset(
-            self.dataset_path,
-            "train_val",
-            transforms=self.test_transform,  # Use test transforms for validation
-            metadata=self.metadata,
-            global_channel_mapping=self.global_channel_mapping,
-        )
-
-        validation_dataset = torch.utils.data.Subset(val_set, self.val_indices)
-
-        return DataLoader(
-            validation_dataset,
-            batch_size=self.batch_size,
-            shuffle=False,
-            num_workers=self.num_workers,
-        )
+        return None
     
     def test_dataloader(self):
         """Test dataloader."""
@@ -109,7 +48,6 @@ class DataModule:
             "test",
             transforms=self.test_transform,
             metadata=self.metadata,
-            global_channel_mapping=self.global_channel_mapping,
         )
         return DataLoader(
             dataset,
@@ -117,7 +55,3 @@ class DataModule:
             shuffle=False,
             num_workers=self.num_workers,
         )
-    
-    def get_num_channels(self):
-        """Return the number of channels from global mapping"""
-        return self.num_channels

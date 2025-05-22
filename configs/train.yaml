@@ -2,10 +2,10 @@ defaults:
     - _self_
     - dataset: default
     - optim: adamw
-    - model: enhanced_combined_model
+    - model: multimodal
     - loss_fn: msle
 
-epochs: 30
+epochs: 20
 log: True
 prefix: ""
 experiment_name: ${prefix}${model.name}_${now:%Y-%m-%d_%H-%M-%S}
@@ -27,8 +27,3 @@ datamodule:
 data_dir: ${root_dir}/dataset/
 root_dir:  ${hydra:runtime.cwd}
 checkpoint_path: ${root_dir}/checkpoints/${experiment_name}.pt
-
-resume_from_checkpoint: False
-
-
-
