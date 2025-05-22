@@ -31,7 +31,11 @@ def create_submission(cfg):
     submission = pd.DataFrame(columns=["ID", "views"])
 
     for i, batch in enumerate(test_loader):
+        # Move all tensors to device
         batch["image"] = batch["image"].to(device)
+        batch["channel_idx"] = batch["channel_idx"].to(device)
+        batch["date_features"] = batch["date_features"].to(device)
+        
         with torch.no_grad():
             preds = model(batch).squeeze().cpu().numpy()
         submission = pd.concat(

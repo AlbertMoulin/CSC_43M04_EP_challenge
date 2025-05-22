@@ -23,6 +23,8 @@ datamodule:
   batch_size: ${dataset.batch_size}
   num_workers: ${dataset.num_workers}
   metadata: ${dataset.metadata}
+  val_split: 0.2
+  random_seed: 42
 
 data_dir: ${root_dir}/dataset/
 root_dir:  ${hydra:runtime.cwd}
