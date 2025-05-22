@@ -1,0 +1,7 @@
+instance:
+  _target_: models.simplified_multimodal.UltraSimpleModel
+  dinov2_frozen: True
+  bert_frozen: True
+  max_token_length: 128
+
+name: SIMPLE_MULTIMODAL

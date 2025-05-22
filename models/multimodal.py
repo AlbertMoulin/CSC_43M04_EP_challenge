@@ -73,21 +73,21 @@ class MultimodalViewModel(nn.Module):
         # Individual prediction heads
         self.image_head = ImprovedHead(
             input_dim=self.image_dim,
-            hidden_dims=[1024, 1024,1024],
+            hidden_dims=[512]*6,
             output_dim=1,
             dropout_rate=dropout_rate
         )
         
         self.text_head = ImprovedHead(
             input_dim=self.text_dim,
-            hidden_dims=[1024, 1024,1024],
+            hidden_dims=[512]*6,
             output_dim=1,
             dropout_rate=dropout_rate
         )
         
         self.metadata_head = ImprovedHead(
             input_dim=self.metadata_dim,
-            hidden_dims=[1024, 1024,1024],
+            hidden_dims=[512]*6,
             output_dim=1,
             dropout_rate=dropout_rate
         )
