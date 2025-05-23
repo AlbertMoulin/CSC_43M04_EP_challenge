@@ -1,7 +1,7 @@
 instance:
   _target_: models.simplified_multimodal.EnhancedPhase1LargeMLP
-  dinov2_frozen: True
-  bert_frozen: True
+  dinov2_frozen: False
+  bert_frozen: False
   max_token_length: 128
 
 name: SIMPLE_MULTIMODAL

@@ -1,4 +1,3 @@
 _target_: torch.optim.AdamW
-lr: 3e-4  # Lower LR for stability
+lr: 1e-3  # Lower LR for stability
 betas: [0.9, 0.999]
-weight_decay: 1e-5
