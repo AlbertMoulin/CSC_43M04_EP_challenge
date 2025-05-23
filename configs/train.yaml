@@ -2,7 +2,7 @@ defaults:
     - _self_
     - dataset: default
     - optim: adamw
-    - model: simplified_multimodal
+    - model: enhanced_multimodal
     - loss_fn: msle
 
 epochs: 20
@@ -16,7 +16,7 @@ hydra:
     dir: .
 
 datamodule:
-  _target_: data.datamodule.DataModule
+  _target_: data.datamodule.EnhancedDataModule
   dataset_path: ${data_dir}
   train_transform: ${dataset.train_transform}
   test_transform: ${dataset.val_transform}
