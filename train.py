@@ -2,7 +2,7 @@ import torch
 import wandb
 import hydra
 from tqdm import tqdm
-
+import numpy as np
 
 from utils.sanity import show_images
 
@@ -24,7 +24,7 @@ def train(cfg):
     loss_fn = hydra.utils.instantiate(cfg.loss_fn)
     datamodule = hydra.utils.instantiate(cfg.datamodule)
     train_loader = datamodule.train_dataloader()
-    val_loader = datamodule.val_dataloader()
+    val_loader = datamodule.val_dataloader() #!!!!!!
     train_sanity = show_images(train_loader, name="assets/sanity/train_images")
     (
         logger.log({"sanity_checks/train_images": wandb.Image(train_sanity)})
@@ -41,6 +41,8 @@ def train(cfg):
     for epoch in tqdm(range(cfg.epochs), desc="Epochs"):
         # -- loop over training batches
         model.train()
+        encoder.train()
+        fusion.train()
         epoch_train_loss = 0
         num_samples_train = 0
         pbar = tqdm(train_loader, desc=f"Epoch {epoch}", leave=False)
@@ -84,7 +86,11 @@ def train(cfg):
         epoch_val_loss = 0
         num_samples_val = 0
         model.eval()
+        encoder.eval()
+        fusion.eval()
         if val_loader is not None: 
+            y_true = [] 
+            y_pred = []
             for _, batch in enumerate(val_loader):
                 batch["image"] = batch["image"].to(device)
                 batch["target"] = batch["target"].to(device).squeeze()
@@ -98,6 +104,8 @@ def train(cfg):
                 with torch.no_grad():
                     preds = model(fused).squeeze()
                 loss = loss_fn(preds, batch["target"])
+                y_true.append(batch["target"].detach().cpu().numpy())  #pour histogrammes
+                y_pred.append(preds.detach().cpu().numpy())      
                 epoch_val_loss += loss.detach().cpu().numpy() * len(batch["image"])
                 num_samples_val += len(batch["image"])
             epoch_val_loss /= num_samples_val
@@ -112,6 +120,14 @@ def train(cfg):
                 if logger is not None
                 else None
             )
+            if logger is not None:
+                y_pred = np.concatenate(y_pred)
+                data_pred = [[v] for v in y_pred]
+                table_pred = wandb.Table(data=data_pred, columns=["pred_views"])
+                logger.log({
+                    "hist_pred_views": wandb.plot.histogram(table_pred, "pred_views", title="Distribution des vues prédites")
+                })
+    
 
     print(
         f"""Epoch {epoch}: 

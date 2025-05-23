@@ -36,9 +36,10 @@ def create_submission(cfg):
         batch["image"] = batch["image"].to(device)
         batch["input_ids"] = batch["input_ids"].to(device)
         batch["attention_mask"] = batch["attention_mask"].to(device)
-
-        image_embed,tex_embed = encoder(batch)
-        fused = fusion(image_embed,tex_embed)
+        batch["date"] = batch["date"].to(device)
+        batch["vectorized_text"] = batch["vectorized_text"].to(device)
+        embed = encoder(batch)
+        fused = fusion(embed)
         with torch.no_grad():
             preds = model(fused).squeeze()
             preds = torch.clamp(preds, min=0).cpu().numpy()

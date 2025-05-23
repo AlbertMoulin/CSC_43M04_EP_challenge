@@ -3,6 +3,7 @@ import torch.nn as nn
 from transformers import CLIPModel, CLIPProcessor, BertModel, DistilBertModel
 import string
 import torchvision.transforms as T
+from transformers import AutoTokenizer, AutoModelForCausalLM
 
 class CLIPWrapper(nn.Module):
     def __init__(self, name="openai/clip-vit-base-patch32", frozen=True):
@@ -32,25 +33,38 @@ class CLIPWrapper(nn.Module):
     
 class DinoV2BertMultimodalEncoder(nn.Module):
 
-    def __init__(self, output_dim=None, frozen_image=True, frozen_text=True, bert_model_name="distilbert-base-uncased",patchs=False):
+    def __init__(self, outtext_dim=None, outimg_dim=None, outdate_dim=None, frozen_image=True, frozen_text=True, bert_model_name="distilbert-base-uncased",patchs=False):
         super().__init__()
+        self.outtext_dim = outtext_dim
+        self.outimg_dim = outimg_dim
+        self.outdate_dim = outdate_dim
+
         self.backbone = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14_reg")
         self.backbone.head = nn.Identity()
         self.img_dim = self.backbone.norm.normalized_shape[0]
         if frozen_image:
             for param in self.backbone.parameters():
                 param.requires_grad = False
-
+        if outimg_dim is not None:
+            self.img_proj = nn.Linear(self.img_dim, outimg_dim)
+        else:
+            self.img_proj = nn.Identity()
+        
         self.bert = DistilBertModel.from_pretrained(bert_model_name)
         self.text_dim = self.bert.config.hidden_size
         if frozen_text:
             for param in self.bert.parameters():
                 param.requires_grad = False
         self.patchs = patchs
-        self.output_dim = output_dim
-        if output_dim is not None:
-            self.img_proj = nn.Linear(self.img_dim, output_dim)
-            self.text_proj = nn.Linear(self.text_dim, output_dim)
+        if outtext_dim is not None:
+            self.text_proj = nn.Linear(self.text_dim, outtext_dim)
+        else:
+            self.text_proj = nn.Identity()
+
+        if outdate_dim is not None:
+            self.date_proj = nn.Linear(5, outdate_dim)
+        else:
+            self.date_proj = nn.Identity()
         
     
     def forward(self, x):
@@ -59,7 +73,7 @@ class DinoV2BertMultimodalEncoder(nn.Module):
             # IMAGE : [B, N_img, D]
             features = self.backbone.forward_features(x["image"])
             img_feat = features["x_norm_patchtokens"]  # remove [CLS] if needed
-            if self.output_dim is not None: img_feat = self.img_proj(img_feat) 
+            if self.outimg_dim is not None: img_feat = self.img_proj(img_feat) 
 
             # TEXTE : [B, N_txt, D]
             text_out = self.bert(
@@ -67,14 +81,18 @@ class DinoV2BertMultimodalEncoder(nn.Module):
                 attention_mask=x["attention_mask"]
             )
             text_feat = text_out.last_hidden_state  # keep all tokens
-            if self.output_dim is not None: text_feat = self.text_proj(text_feat)
+            if self.outtext_dim is not None: text_feat = self.text_proj(text_feat)
+
             
             return img_feat, text_feat
+        
+            # pas à jour pour faire avec zorro
+
         else:
             # x["image"]: Tensor [B, 3, H, W]
             # x["input_ids"], x["attention_mask"]: pour BERT
             img_feat = self.backbone(x["image"])  # [B, img_dim]
-            if self.output_dim is not None: img_feat = self.img_proj(img_feat)
+            if self.outimg_dim is not None: img_feat = self.img_proj(img_feat)
 
             # BERT encodeur (on prend le [CLS] token)
             text_out = self.bert(
@@ -82,10 +100,12 @@ class DinoV2BertMultimodalEncoder(nn.Module):
                 attention_mask=x["attention_mask"]
             )
             text_feat = text_out.last_hidden_state[:, 0, :]  # [B, text_dim]
-            if self.output_dim is not None: text_feat = self.text_proj(text_feat)
+            if self.outtext_dim is not None: text_feat = self.text_proj(text_feat)
 
-            return (img_feat, text_feat)
-    
+            if self.outdate_dim is not None:
+                date_out = self.date_proj(x["date"])
+        
+            return [img_feat, text_feat, date_out]    
 
 class DinoV2BOWEncoder(nn.Module):
     def __init__(self, outtext_dim=None, outimg_dim=None, outdate_dim=None, frozen_image=True, vocab_size=None):
@@ -130,4 +150,3 @@ class DinoV2BOWEncoder(nn.Module):
             date_out = self.date_proj(x["date"])
         
         return [img_feat, text_out, date_out]
-    

@@ -1,10 +1,10 @@
 instance: 
   _target_: models.regressor.ImprovedMLPRegressor
-  input_dim: 768
-  # pour bow et dino_vits projetés avec concat: 512+256=768  
+  input_dim: 776
+  # pour bow et dino_vits + date projetés avec concat: 512+256+128=896
   # pour distil_bert et dino_vits avec concat: 768+384=1152
   # pour distil_bert et dino_vits avec fusion (donc projetes avant) : 256*3 = 768
-  hidden_dim: [1024, 528, 256] 
+  hidden_dim: [1024,528,256] 
   num_layers: 2
   dropout: 0.1
 

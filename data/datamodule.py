@@ -12,7 +12,7 @@ class DataModule:
         test_transform,
         batch_size,
         num_workers,
-        metadata=["title"],
+        metadata=None,
         validation_set_type="random",
     ):
         self.dataset_path = dataset_path
@@ -20,7 +20,7 @@ class DataModule:
         self.test_transform = test_transform
         self.batch_size = batch_size
         self.num_workers = num_workers
-        self.metadata = metadata
+        self.metadata = metadata if metadata is not None else ["title"]
         self.val_split = 0.2
         self.random_seed = 42  # Pour la reproductibilité
         self._setup_indices(validation_set_type)
@@ -36,8 +36,8 @@ class DataModule:
             metadata=self.metadata,
             vocab=None,
         )
-        # Construit vocab à partir du texte d'entraînement
-        self.vocab = full_train_set.build_vocab(full_train_set.text)
+        texts = [full_train_set.text[i] for i in self.train_indices]
+        self.vocab = full_train_set.build_vocab(texts)
 
     def _setup_indices(self,validation_set_type="random"):
         """Prépare les indices pour les ensembles train et validation."""
@@ -107,7 +107,7 @@ class DataModule:
         return DataLoader(
             validation_dataset,
             batch_size=self.batch_size,
-            shuffle=True,
+            shuffle=False,
             num_workers=self.num_workers,
         )
     

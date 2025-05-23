@@ -59,6 +59,7 @@ class ImprovedMLPRegressor(nn.Module):
             current_dim = dim
         self.output_layer = nn.Linear(current_dim, 1)
         self.dropout = nn.Dropout(dropout)
+        self.activation = nn.ReLU()
 
     def forward(self, x):
         x = self.input_projection(x)
@@ -66,4 +67,4 @@ class ImprovedMLPRegressor(nn.Module):
         for block in self.blocks:
             x = block(x)
         x = self.dropout(x)
-        return self.output_layer(x).squeeze(1)
+        return self.activation(self.output_layer(x).squeeze(1))
