@@ -49,9 +49,11 @@ def train(cfg):
             batch["target"] = batch["target"].to(device).squeeze()
             batch["input_ids"] = batch["input_ids"].to(device)
             batch["attention_mask"] = batch["attention_mask"].to(device)
+            batch["date"] = batch["date"].to(device)
+            batch["vectorized_text"] = batch["vectorized_text"].to(device)
 
-            image_embed,tex_embed = encoder(batch)
-            fused = fusion(image_embed,tex_embed)
+            embed = encoder(batch)
+            fused = fusion(embed)
             preds = model(fused).squeeze()
             loss = loss_fn(preds, batch["target"])
             (
@@ -87,9 +89,12 @@ def train(cfg):
                 batch["image"] = batch["image"].to(device)
                 batch["target"] = batch["target"].to(device).squeeze()
                 batch["input_ids"] = batch["input_ids"].to(device)
-                batch["attention_mask"] = batch["attention_mask"].to(device)     
-                image_embed,tex_embed = encoder(batch)
-                fused = fusion(image_embed,tex_embed)
+                batch["attention_mask"] = batch["attention_mask"].to(device)
+                batch["date"] = batch["date"].to(device)
+                batch["vectorized_text"] = batch["vectorized_text"].to(device)
+
+                embed = encoder(batch)
+                fused = fusion(embed)
                 with torch.no_grad():
                     preds = model(fused).squeeze()
                 loss = loss_fn(preds, batch["target"])

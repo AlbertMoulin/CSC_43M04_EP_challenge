@@ -24,6 +24,20 @@ class DataModule:
         self.val_split = 0.2
         self.random_seed = 42  # Pour la reproductibilité
         self._setup_indices(validation_set_type)
+        self.vocab = None
+        self.setup_vocab()
+
+    def setup_vocab(self):
+        # Crée un Dataset complet train_val juste pour construire vocab
+        full_train_set = Dataset(
+            self.dataset_path,
+            "train_val",
+            transforms=self.train_transform,
+            metadata=self.metadata,
+            vocab=None,
+        )
+        # Construit vocab à partir du texte d'entraînement
+        self.vocab = full_train_set.build_vocab(full_train_set.text)
 
     def _setup_indices(self,validation_set_type="random"):
         """Prépare les indices pour les ensembles train et validation."""
@@ -64,6 +78,7 @@ class DataModule:
             "train_val",
             transforms=self.train_transform,
             metadata=self.metadata,
+            vocab = self.vocab,
         )
 
         train_dataset = torch.utils.data.Subset(train_set, self.train_indices)
@@ -84,6 +99,7 @@ class DataModule:
             "train_val",
             transforms=self.test_transform,
             metadata=self.metadata,
+            vocab = self.vocab,
         )
 
         validation_dataset = torch.utils.data.Subset(val_set, self.val_indices)
@@ -102,6 +118,7 @@ class DataModule:
             "test",
             transforms=self.test_transform,
             metadata=self.metadata,
+            vocab = self.vocab,
         )
         return DataLoader(
             dataset,
