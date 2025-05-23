@@ -1,5 +1,5 @@
 instance:
-  _target_: models.enhanced_multimodal.EnhancedMultimodalWithDate
+  _target_: models.simplified_multimodal.EnhancedMultimodalWithDate
   image_model_frozen: True
   text_model_frozen: True
   final_mlp_layers: [1024, 1024, 1024]

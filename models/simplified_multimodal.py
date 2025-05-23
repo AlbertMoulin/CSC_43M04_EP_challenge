@@ -129,7 +129,7 @@ class EnhancedMultimodalWithDate(nn.Module):
         # Text branch
         self.tokenizer = AutoTokenizer.from_pretrained(text_model_name)
         self.text_backbone = AutoModelForCausalLM.from_pretrained(text_model_name, torch_dtype=torch.float16)
-        text_dim = self.text_backbone.config.hidden_size  # 1152
+        text_dim = self.text_backbone.config.hidden_size
         self.max_token_length = max_token_length
         
         if text_model_frozen:
@@ -139,17 +139,13 @@ class EnhancedMultimodalWithDate(nn.Module):
         # Date branch
         if self.use_date_features:
             self.date_encoder = DateEncoder(date_embedding_dim)
-            combined_dim = image_dim + text_dim + date_embedding_dim
-        else:
-            combined_dim = image_dim + text_dim
         
-        # Final MLP
-        self.mlp = MLP(
-            input_dim=combined_dim, 
-            output_dim=1, 
-            hidden_dim=final_mlp_layers, 
-            dropout_rate=dropout_rate
-        )
+        # We'll compute the combined_dim dynamically in a forward pass
+        # to avoid dimension mismatches
+        self.mlp = None  # Will be initialized after first forward pass
+        self.final_mlp_layers = final_mlp_layers
+        self.dropout_rate = dropout_rate
+        self._mlp_initialized = False
     
     def forward(self, batch):
         # Image processing
@@ -182,6 +178,22 @@ class EnhancedMultimodalWithDate(nn.Module):
             combined_features = torch.cat((image_features, last_token_hidden, date_features), dim=1)
         else:
             combined_features = torch.cat((image_features, last_token_hidden), dim=1)
+        
+        # Initialize MLP on first forward pass to get correct dimensions
+        if not self._mlp_initialized:
+            combined_dim = combined_features.shape[1]
+            print(f"Initializing MLP with input dimension: {combined_dim}")
+            print(f"Image features: {image_features.shape[1]}, Text features: {last_token_hidden.shape[1]}")
+            if self.use_date_features and "date" in batch:
+                print(f"Date features: {date_features.shape[1]}")
+            
+            self.mlp = MLP(
+                input_dim=combined_dim,
+                output_dim=1,
+                hidden_dim=self.final_mlp_layers,
+                dropout_rate=self.dropout_rate
+            ).to(device)
+            self._mlp_initialized = True
         
         # MLP processing
         mlp_output = self.mlp(combined_features)
