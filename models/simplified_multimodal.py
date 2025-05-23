@@ -96,5 +96,3 @@ class EnhancedPhase1LargeMLP(nn.Module):
         # MLP processing
         mlp_output = self.mlp(combined_features)
         return mlp_output
-
-
