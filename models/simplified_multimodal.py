@@ -1,18 +1,46 @@
 import torch
 import torch.nn as nn
-from transformers import AutoTokenizer, AutoModel
+from transformers import AutoTokenizer, AutoModelForCausalLM
 
+class MLP(nn.Module):
+    """
+    Simple MLP
+    """
+    def __init__(self, input_dim, output_dim, hidden_dim : list = [1024, 1024,1024],dropout_rate=0.1):
+        super().__init__()
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        self.hidden_dim = hidden_dim
+        self.hidden_layers = []
+        for i in range(len(hidden_dim)):
+            if i == 0:
+                self.hidden_layers.append(nn.Linear(input_dim, hidden_dim[i]))
+            else:
+                self.hidden_layers.append(nn.Linear(hidden_dim[i-1], hidden_dim[i]))
+            self.hidden_layers.append(nn.ReLU())
+            self.hidden_layers.append(nn.Dropout(dropout_rate))
+        self.hidden_layers.append(nn.Linear(hidden_dim[-1], output_dim))
+        self.hidden_layers = nn.ModuleList(self.hidden_layers)
+        # Initialize the MLP with the specified hidden layers
+        self.mlp = nn.Sequential(*self.hidden_layers)
+    
+    def forward(self, x):
+        # Forward pass through the MLP
+        x = self.mlp(x)
+        return x
+        
 
 class EnhancedPhase1LargeMLP(nn.Module):
     """
     Phase 1 enhanced text processing + [1024]*3 MLPs that you found work well.
     """
     def __init__(self, 
-                 dinov2_frozen=True,
-                 bert_frozen=True,
+                 image_model_frozen=True,
+                 text_model_frozen=True,
+                 final_mlp_layers=[1024, 1024, 1024],
                  max_token_length=256,  # Enhanced from Phase 1
                  dropout_rate=0.1,      # Add some regularization
-                 text_model_name='bert-base-uncased'):
+                 text_model_name="google/gemma-3-1b-it"):
         super().__init__()
         
         # Image branch with [1024]*3 MLP
@@ -20,83 +48,34 @@ class EnhancedPhase1LargeMLP(nn.Module):
         self.image_backbone.head = nn.Identity()
         image_dim = self.image_backbone.norm.normalized_shape[0]  # 768
         
-        if dinov2_frozen:
+        if image_model_frozen:
             for param in self.image_backbone.parameters():
                 param.requires_grad = False
         
-        # Large image MLP: 768 -> 1024 -> 1024 -> 1024 -> 1
-        self.image_mlp = nn.Sequential(
-            nn.Linear(image_dim, 1024),
-            nn.ReLU(),
-            nn.Dropout(dropout_rate),
-            nn.Linear(1024, 1024),
-            nn.ReLU(),
-            nn.Dropout(dropout_rate),
-            nn.Linear(1024, 1024),
-            nn.ReLU(),
-            nn.Dropout(dropout_rate),
-            nn.Linear(1024, 1)
-        )
-        
         # Enhanced text branch from Phase 1
         self.tokenizer = AutoTokenizer.from_pretrained(text_model_name)
-        self.text_backbone = AutoModel.from_pretrained(text_model_name)
-        text_dim = self.text_backbone.config.hidden_size  # 768
+        self.text_backbone = AutoModelForCausalLM.from_pretrained(text_model_name)
+        text_dim = self.text_backbone.config.hidden_size # 1152
         self.max_token_length = max_token_length
         
-        if bert_frozen:
+        if text_model_frozen:
             for param in self.text_backbone.parameters():
                 param.requires_grad = False
         
-        # Large text MLP: 768 -> 1024 -> 1024 -> 1024 -> 1
-        self.text_mlp = nn.Sequential(
-            nn.Linear(text_dim, 1024),
-            nn.ReLU(),
-            nn.Dropout(dropout_rate),
-            nn.Linear(1024, 1024),
-            nn.ReLU(),
-            nn.Dropout(dropout_rate),
-            nn.Linear(1024, 1024),
-            nn.ReLU(),
-            nn.Dropout(dropout_rate),
-            nn.Linear(1024, 1)
-        )
+        # final MLP
+        self.mlp = MLP(input_dim=image_dim + text_dim, output_dim=1, hidden_dim=final_mlp_layers, dropout_rate=dropout_rate)
         
-        # Learnable weights (start with slight image bias since images often matter more for views)
-        self.weight_image = nn.Parameter(torch.tensor(0.6))
-        self.weight_text = nn.Parameter(torch.tensor(0.4))
-    
-    def _preprocess_text(self, raw_text):
-        """Enhanced text preprocessing from Phase 1."""
-        processed_text = []
-        for text in raw_text:
-            if isinstance(text, str):
-                # Clean text
-                text = text.strip()
-                
-                # Handle edge cases
-                if len(text) < 3:
-                    text = f"Short video: {text}" if text else "[EMPTY]"
-                elif len(text) > 500:  # Very long titles
-                    text = text[:500] + "..."
-                
-                processed_text.append(text)
-            else:
-                processed_text.append("[EMPTY]")
-        return processed_text
     
     def forward(self, batch):
         # Image processing
         image_features = self.image_backbone(batch["image"])
-        image_pred = self.image_mlp(image_features)
         
         # Enhanced text processing from Phase 1
         raw_text = list(batch["text"])
-        processed_text = self._preprocess_text(raw_text)
         
         # Better tokenization
         encoded_text = self.tokenizer(
-            processed_text,
+            raw_text,
             padding='max_length',
             truncation=True,
             max_length=self.max_token_length,
@@ -109,13 +88,13 @@ class EnhancedPhase1LargeMLP(nn.Module):
         attention_mask = encoded_text['attention_mask'].to(device)
         
         # Text features
-        text_outputs = self.text_backbone(input_ids=input_ids, attention_mask=attention_mask)
-        text_features = text_outputs.last_hidden_state[:, 0, :]  # [CLS] token
-        text_pred = self.text_mlp(text_features)
-        
-        # Combine predictions
-        combined_pred = self.weight_image * image_pred + self.weight_text * text_pred
-        
-        return combined_pred
+        text_outputs = self.text_backbone(input_ids=input_ids, attention_mask=attention_mask, output_hidden_states=True)
+        last_hidden_state = text_outputs.hidden_states[-1]  # [CLS] token
+        last_token_hidden = last_hidden_state[:, -1, :]
+        # Concatenate image and text features
+        combined_features = torch.cat((image_features, last_token_hidden), dim=1)
+        # MLP processing
+        mlp_output = self.mlp(combined_features)
+        return mlp_output
 
 
