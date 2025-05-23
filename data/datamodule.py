@@ -1,10 +1,10 @@
 from torch.utils.data import DataLoader, Subset
 import pandas as pd
 
-from data.dataset import Dataset
+from data.dataset import EnhancedDataset  # Your new dataset class
 
 
-class DataModule:
+class EnhancedDataModule:
     def __init__(
         self,
         dataset_path,
@@ -13,7 +13,7 @@ class DataModule:
         batch_size,
         num_workers,
         metadata=["title"],
-        val_split=0.2,  # 20% for validation
+        val_split=0.2,
     ):
         self.dataset_path = dataset_path
         self.train_transform = train_transform  
@@ -22,10 +22,24 @@ class DataModule:
         self.num_workers = num_workers
         self.metadata = metadata
         self.val_split = val_split
+        
+        # Get unique channels for embedding initialization
+        self.unique_channels = self._get_unique_channels()
+
+    def _get_unique_channels(self):
+        """Get all unique channels from train_val data"""
+        train_val_info = pd.read_csv(f"{self.dataset_path}/train_val.csv")
+        unique_channels = sorted(train_val_info["channel"].unique().tolist())
+        print(f"Found {len(unique_channels)} unique channels")
+        return unique_channels
+
+    def get_unique_channels(self):
+        """Return unique channels for model initialization"""
+        return self.unique_channels
 
     def train_dataloader(self):
         """Train dataloader with subset of indices."""
-        full_dataset = Dataset(
+        full_dataset = EnhancedDataset(
             self.dataset_path,
             "train_val",
             transforms=self.train_transform,
@@ -49,10 +63,10 @@ class DataModule:
 
     def val_dataloader(self):
         """Validation dataloader with subset of indices."""
-        full_dataset = Dataset(
+        full_dataset = EnhancedDataset(
             self.dataset_path,
             "train_val",
-            transforms=self.test_transform,  # Use test transforms for validation
+            transforms=self.test_transform,
             metadata=self.metadata,
         )
         
@@ -73,7 +87,7 @@ class DataModule:
     
     def test_dataloader(self):
         """Test dataloader."""
-        dataset = Dataset(
+        dataset = EnhancedDataset(
             self.dataset_path,
             "test",
             transforms=self.test_transform,

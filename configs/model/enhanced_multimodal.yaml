@@ -1,0 +1,12 @@
+instance:
+  _target_: models.enhanced_multimodal.EnhancedMultimodalWithMetadata
+  image_model_frozen: True
+  text_model_frozen: True
+  final_mlp_layers: [1024, 1024, 1024]
+  max_token_length: 256
+  dropout_rate: 0.1
+  text_model_name: google/gemma-3-1b-it
+  channel_embedding_dim: 64
+  temporal_embedding_dim: 32
+
+name: ENHANCED_MULTIMODAL

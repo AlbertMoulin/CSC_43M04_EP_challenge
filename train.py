@@ -3,7 +3,6 @@ import wandb
 import hydra
 from tqdm import tqdm
 
-
 from utils.sanity import show_images
 
 
@@ -15,12 +14,25 @@ def train(cfg):
         else None
     )
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    # Initialize datamodule first to get unique channels
+    datamodule = hydra.utils.instantiate(cfg.datamodule)
+    
+    # Initialize model
     model = hydra.utils.instantiate(cfg.model.instance).to(device)
+    
+    # Initialize channel embeddings after getting unique channels
+    if hasattr(model, 'initialize_channel_embedding'):
+        unique_channels = datamodule.get_unique_channels()
+        model.initialize_channel_embedding(unique_channels)
+        print(f"Initialized channel embeddings for {len(unique_channels)} channels")
+    
     optimizer = hydra.utils.instantiate(cfg.optim, params=model.parameters())
     loss_fn = hydra.utils.instantiate(cfg.loss_fn)
-    datamodule = hydra.utils.instantiate(cfg.datamodule)
+    
     train_loader = datamodule.train_dataloader()
     val_loader = datamodule.val_dataloader()
+    
     train_sanity = show_images(train_loader, name="assets/sanity/train_images")
     (
         logger.log({"sanity_checks/train_images": wandb.Image(train_sanity)})
@@ -33,29 +45,35 @@ def train(cfg):
             {"sanity_checks/val_images": wandb.Image(val_sanity)}
         ) if logger is not None else None
 
-    # -- loop over epochs
+    # Training loop
     for epoch in tqdm(range(cfg.epochs), desc="Epochs"):
-        # -- loop over training batches
+        # Training phase
         model.train()
         epoch_train_loss = 0
         num_samples_train = 0
         pbar = tqdm(train_loader, desc=f"Epoch {epoch}", leave=False)
+        
         for i, batch in enumerate(pbar):
             batch["image"] = batch["image"].to(device)
             batch["target"] = batch["target"].to(device).squeeze()
+            
             preds = model(batch).squeeze()
             loss = loss_fn(preds, batch["target"])
+            
             (
                 logger.log({"loss": loss.detach().cpu().numpy()})
                 if logger is not None
                 else None
             )
+            
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            
             epoch_train_loss += loss.detach().cpu().numpy() * len(batch["image"])
             num_samples_train += len(batch["image"])
             pbar.set_postfix({"train/loss_step": loss.detach().cpu().numpy()})
+            
         epoch_train_loss /= num_samples_train
         (
             logger.log(
@@ -68,20 +86,24 @@ def train(cfg):
             else None
         )
 
-        # -- validation loop
+        # Validation phase
         val_metrics = {}
         epoch_val_loss = 0
         num_samples_val = 0
         model.eval()
+        
         if val_loader is not None: 
             for _, batch in enumerate(val_loader):
                 batch["image"] = batch["image"].to(device)
                 batch["target"] = batch["target"].to(device).squeeze()
+                
                 with torch.no_grad():
                     preds = model(batch).squeeze()
                 loss = loss_fn(preds, batch["target"])
+                
                 epoch_val_loss += loss.detach().cpu().numpy() * len(batch["image"])
                 num_samples_val += len(batch["image"])
+                
             epoch_val_loss /= num_samples_val
             val_metrics["val/loss_epoch"] = epoch_val_loss
             (
@@ -96,7 +118,7 @@ def train(cfg):
             )
 
     print(
-        f"""Epoch {epoch}: 
+        f"""Final results: 
         Training metrics:
         - Train Loss: {epoch_train_loss:.4f},
         Validation metrics: 
