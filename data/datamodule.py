@@ -1,4 +1,5 @@
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
+import pandas as pd
 
 from data.dataset import Dataset
 
@@ -12,6 +13,7 @@ class DataModule:
         batch_size,
         num_workers,
         metadata=["title"],
+        val_split=0.2,  # 20% for validation
     ):
         self.dataset_path = dataset_path
         self.train_transform = train_transform  
@@ -19,27 +21,55 @@ class DataModule:
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.metadata = metadata
+        self.val_split = val_split
 
     def train_dataloader(self):
-        """Train dataloader."""
-        train_set = Dataset(
+        """Train dataloader with subset of indices."""
+        full_dataset = Dataset(
             self.dataset_path,
             "train_val",
             transforms=self.train_transform,
             metadata=self.metadata,
         )
+        
+        # Calculate train indices (first 80%)
+        total_size = len(full_dataset)
+        val_size = int(total_size * self.val_split)
+        train_size = total_size - val_size
+        train_indices = list(range(train_size))
+        
+        train_subset = Subset(full_dataset, train_indices)
+        
         return DataLoader(
-            train_set,
+            train_subset,
             batch_size=self.batch_size,
             shuffle=True,
             num_workers=self.num_workers,
         )
 
     def val_dataloader(self):
-        """TODO: 
-        Implement a strategy to create a validation set from the train set.
-        """
-        return None
+        """Validation dataloader with subset of indices."""
+        full_dataset = Dataset(
+            self.dataset_path,
+            "train_val",
+            transforms=self.test_transform,  # Use test transforms for validation
+            metadata=self.metadata,
+        )
+        
+        # Calculate val indices (last 20%)
+        total_size = len(full_dataset)
+        val_size = int(total_size * self.val_split)
+        train_size = total_size - val_size
+        val_indices = list(range(train_size, total_size))
+        
+        val_subset = Subset(full_dataset, val_indices)
+        
+        return DataLoader(
+            val_subset,
+            batch_size=self.batch_size,
+            shuffle=False,
+            num_workers=self.num_workers,
+        )
     
     def test_dataloader(self):
         """Test dataloader."""
