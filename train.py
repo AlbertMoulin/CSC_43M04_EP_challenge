@@ -19,13 +19,16 @@ def train(cfg):
     datamodule = hydra.utils.instantiate(cfg.datamodule)
     
     # Initialize model
-    model = hydra.utils.instantiate(cfg.model.instance).to(device)
+    model = hydra.utils.instantiate(cfg.model.instance)
     
-    # Initialize channel embeddings after getting unique channels
+    # Initialize channel embeddings before moving to device
     if hasattr(model, 'initialize_channel_embedding'):
         unique_channels = datamodule.get_unique_channels()
         model.initialize_channel_embedding(unique_channels)
         print(f"Initialized channel embeddings for {len(unique_channels)} channels")
+    
+    # Now move to device
+    model = model.to(device)
     
     optimizer = hydra.utils.instantiate(cfg.optim, params=model.parameters())
     loss_fn = hydra.utils.instantiate(cfg.loss_fn)

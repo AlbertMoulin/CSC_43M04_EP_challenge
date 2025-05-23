@@ -71,6 +71,7 @@ class EnhancedMultimodalWithMetadata(nn.Module):
         # We'll initialize this after seeing the data, but reserve space
         self.channel_embedding = None
         self.channel_to_idx = {}
+        self._channel_initialized = False
         
         # Temporal embeddings
         self.temporal_embedding_dim = temporal_embedding_dim
@@ -85,9 +86,23 @@ class EnhancedMultimodalWithMetadata(nn.Module):
         
     def initialize_channel_embedding(self, unique_channels):
         """Initialize channel embedding after seeing all unique channels"""
+        if self._channel_initialized:
+            return
+            
         self.channel_to_idx = {channel: idx for idx, channel in enumerate(unique_channels)}
         num_channels = len(unique_channels)
+        
+        # Create the embedding and register it as a proper module
         self.channel_embedding = nn.Embedding(num_channels, self.channel_embedding_dim)
+        
+        # If model is already on a device, move the embedding there too
+        device = next(self.parameters()).device
+        self.channel_embedding = self.channel_embedding.to(device)
+        
+        # Register as a submodule so it gets moved with the model
+        self.add_module('channel_embedding', self.channel_embedding)
+        
+        self._channel_initialized = True
         
     def extract_temporal_features(self, date_strings):
         """Extract temporal features from date strings"""
@@ -136,7 +151,7 @@ class EnhancedMultimodalWithMetadata(nn.Module):
         last_token_hidden = last_hidden_state[:, -1, :]
         
         # Channel processing
-        if self.channel_embedding is None:
+        if not self._channel_initialized or self.channel_embedding is None:
             raise ValueError("Channel embedding not initialized. Call initialize_channel_embedding() first.")
         
         channels = batch["channel"]
