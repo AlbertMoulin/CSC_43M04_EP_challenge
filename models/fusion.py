@@ -5,16 +5,9 @@ class ConcatFusion(nn.Module):
     def __init__(self):
         super().__init__()
 
-    def forward(self, image_embed, text_embed):
-        """
-        Args:
-            image_embed: Tensor (B, D)
-            text_embed: Tensor (B, D)
-
-        Returns:
-            fused: Tensor (B, 2D)
-        """
-        return torch.cat([image_embed, text_embed], dim=1)
+    def forward(self, embeds):
+        return torch.cat(embeds, dim=1)  # Concaténer les embeddings le long de la dimension des caractéristiques
+        
     
 class Zorrofusion(nn.Module):
     def __init__(self, dim=512, n_fusion_tokens=1, n_heads=4, n_layers=1):
@@ -40,16 +33,8 @@ class Zorrofusion(nn.Module):
         mask[n_img+n_txt:, :] = False
         return mask  # (N, N)
 
-    def forward(self, image_embed, text_embed):
-        """
-        Args:
-            image_embed: Tensor (B, dim) ou (B, N_img, dim)
-            text_embed: Tensor (B, dim) ou (B, N_txt, dim)
-        Returns:
-            image_out: (B, dim)
-            text_out: (B, dim)
-            fusion_out: (B, dim)
-        """
+    def forward(self, embed):
+        image_embed, text_embed = embed
         if image_embed.dim() == 2:
             image_embed = image_embed.unsqueeze(1)  # (B, 1, D)
         if text_embed.dim() == 2:

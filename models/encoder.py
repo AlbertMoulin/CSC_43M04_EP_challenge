@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from transformers import CLIPModel, CLIPProcessor, BertModel, DistilBertModel
-
+import string
 
 class CLIPWrapper(nn.Module):
     def __init__(self, name="openai/clip-vit-base-patch32", frozen=True):
@@ -27,11 +27,11 @@ class CLIPWrapper(nn.Module):
         inputs = self.processor(text=texts, images=images, return_tensors="pt", padding=True, truncation=True, do_rescale=False)
         inputs = {k: v.to(device) for k, v in inputs.items()}
         outputs = self.model(**inputs)
-        return outputs.image_embeds, outputs.text_embeds
+        return (outputs.image_embeds, outputs.text_embeds)
     
 class DinoV2BertMultimodalEncoder(nn.Module):
 
-    def __init__(self, output_dim=None, frozen_image=False, frozen_text=True, bert_model_name="distilbert-base-uncased",patchs=False):
+    def __init__(self, output_dim=None, frozen_image=True, frozen_text=True, bert_model_name="distilbert-base-uncased",patchs=False):
         super().__init__()
         self.backbone = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14_reg")
         self.backbone.head = nn.Identity()
@@ -83,6 +83,44 @@ class DinoV2BertMultimodalEncoder(nn.Module):
             text_feat = text_out.last_hidden_state[:, 0, :]  # [B, text_dim]
             if self.output_dim is not None: text_feat = self.text_proj(text_feat)
 
-            return img_feat, text_feat
+            return (img_feat, text_feat)
     
 
+    class DinoV2BOWEncoder(nn.Module):
+        def __init__(self, outtext_dim=None, outimg_dim=None, outdate_dim=None, frozen_image=True):
+            super().__init__()
+            self.outtext_dim = outtext_dim
+            self.outimg_dim = outimg_dim
+            if outtext_dim is not None:
+                self.text_proj = nn.Linear(len(self.vocab), outtext_dim)
+            else:
+                self.text_proj = nn.Identity()
+
+            self.backbone = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14_reg")
+            self.backbone.head = nn.Identity()
+            self.img_dim = self.backbone.norm.normalized_shape[0]
+            if frozen_image:
+                for param in self.backbone.parameters():
+                    param.requires_grad = False
+            if outimg_dim is not None:
+                self.img_proj = nn.Linear(self.img_dim, outimg_dim)
+            else:
+                self.img_proj = nn.Identity()
+
+            if outdate_dim is not None:
+                self.date_proj = nn.Linear(5, outdate_dim)
+            else:
+                self.date_proj = nn.Identity()
+
+        def forward(self, x):
+            # texts : liste de chaînes
+            text_out = x["vectorized_text"]  # [batch, vocab_size]
+            if self.outtext_dim is not None: text_out = self.text_proj(text_out)         # [batch, output_dim] ou [batch, vocab_size]
+
+            img_feat = self.backbone(x["image"])  # [B, img_dim]
+            if self.outimg_dim is not None: img_feat = self.img_proj(img_feat)
+
+            if x["date"] and self.outdate_dim is not None:
+                date_out = self.date_proj(x["date"])
+            
+            return [img_feat, text_out, date_out]
