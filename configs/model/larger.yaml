@@ -1,9 +1,9 @@
 instance:
-  _target_: models.larger.PerfectChannelModel
+  _target_: models.larger.LightweightChannelModel
   dinov2_frozen: True
   bert_frozen: True
-  max_token_length: 512
+  max_token_length: 256  # Reduced for memory
   text_model_name: 'bert-base-uncased'
   dataset_path: ${data_dir}
 
-name: PERFECT_CHANNEL
+name: LIGHTWEIGHT_CHANNEL

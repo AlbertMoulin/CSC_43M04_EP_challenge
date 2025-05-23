@@ -5,24 +5,24 @@ import pandas as pd
 import numpy as np
 
 
-class PerfectChannelModel(nn.Module):
+class LightweightChannelModel(nn.Module):
     """
-    Model leveraging 100% channel coverage for maximum performance.
+    Memory-efficient model that leverages channel insights without complex architectures.
     
-    With perfect channel knowledge, this should achieve sub-2.0 MSLE!
+    Focus: Use the key insights from analysis without heavy models.
     """
     def __init__(self, 
                  dinov2_frozen=True,
                  bert_frozen=True,
-                 max_token_length=512,
+                 max_token_length=256,  # Reduced
                  text_model_name='bert-base-uncased',
                  dataset_path="dataset"):
         super().__init__()
         
-        # Load perfect channel knowledge
-        self._load_perfect_channel_data(dataset_path)
+        # Load channel insights
+        self._load_channel_insights(dataset_path)
         
-        # Image branch (smaller role now)
+        # Image branch - SIMPLIFIED
         self.image_backbone = torch.hub.load("facebookresearch/dinov2", "dinov2_vitb14_reg")
         self.image_backbone.head = nn.Identity()
         image_dim = self.image_backbone.norm.normalized_shape[0]
@@ -31,7 +31,7 @@ class PerfectChannelModel(nn.Module):
             for param in self.image_backbone.parameters():
                 param.requires_grad = False
         
-        # Text branch
+        # Text branch - SIMPLIFIED  
         self.tokenizer = AutoTokenizer.from_pretrained(text_model_name)
         self.text_backbone = AutoModel.from_pretrained(text_model_name)
         text_dim = self.text_backbone.config.hidden_size
@@ -41,86 +41,113 @@ class PerfectChannelModel(nn.Module):
             for param in self.text_backbone.parameters():
                 param.requires_grad = False
         
-        # Tier-specific models (adaptive to channel performance level)
-        self.elite_model = TierSpecificModel(image_dim, text_dim, "elite")
-        self.high_model = TierSpecificModel(image_dim, text_dim, "high") 
-        self.medium_model = TierSpecificModel(image_dim, text_dim, "medium")
-        self.low_model = TierSpecificModel(image_dim, text_dim, "low")
+        # LIGHTWEIGHT MLPs
+        self.image_mlp = nn.Sequential(
+            nn.Linear(image_dim, 256),  # Much smaller
+            nn.ReLU(),
+            nn.Linear(256, 1)
+        )
         
-        # Channel baseline predictor (VERY STRONG!)
-        self.channel_baseline_weight = nn.Parameter(torch.tensor(0.6))  # 60% from channel history!
-        self.model_adjustment_weight = nn.Parameter(torch.tensor(0.4))  # 40% from content
+        # Text + channel features
+        channel_features_dim = 8  # Key channel features only
+        combined_text_dim = text_dim + channel_features_dim
         
-        # Tier routing
-        self.tier_models = {
-            'Elite': self.elite_model,
-            'High': self.high_model, 
-            'Medium': self.medium_model,
-            'Low': self.low_model
-        }
+        self.text_mlp = nn.Sequential(
+            nn.Linear(combined_text_dim, 512),  # Smaller
+            nn.ReLU(),
+            nn.Dropout(0.1),
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Linear(256, 1)
+        )
+        
+        # Weights based on analysis insights
+        self.weight_image = nn.Parameter(torch.tensor(0.3))
+        self.weight_text = nn.Parameter(torch.tensor(0.7))  # Text+channel gets more weight
     
-    def _load_perfect_channel_data(self, dataset_path):
-        """Load comprehensive channel data with perfect coverage."""
+    def _load_channel_insights(self, dataset_path):
+        """Load key channel insights from analysis."""
         try:
-            # Load the saved channel lookup table
-            self.channel_lookup = pd.read_csv('channel_lookup_table.csv', index_col=0)
-            
-            # Also load raw training data for baseline predictions
             train_df = pd.read_csv(f"{dataset_path}/train_val.csv")
             
-            # Channel baseline predictions (median for robustness)
-            self.channel_baselines = train_df.groupby('channel')['views'].median().to_dict()
+            # Key insights from your analysis:
+            # 1. Elite channels: 63% short films, 82% social presence, 2.5M avg
+            # 2. High channels: 22% short films, 54% social, 314K avg  
+            # 3. Channel reputation correlation: 0.166 (strongest!)
             
-            # Channel tier mapping
-            self.channel_tiers = self.channel_lookup['performance_tier'].to_dict()
+            channel_stats = train_df.groupby('channel').agg({
+                'views': ['mean', 'median', 'std', 'count'],
+                'title': [
+                    lambda x: x.str.lower().str.contains('short film|animated short').mean(),
+                    lambda x: x.str.lower().str.contains('vfx|cgi|breakdown').mean(),
+                ],
+                'description': [
+                    lambda x: x.fillna('').str.lower().str.contains('subscribe|like|share').mean(),
+                    lambda x: x.fillna('').str.lower().str.contains('facebook|twitter|instagram').mean(),
+                ]
+            }).round(4)
             
-            # Channel statistics for advanced features
-            self.channel_stats = {}
-            for channel in self.channel_lookup.index:
-                stats = self.channel_lookup.loc[channel]
-                self.channel_stats[channel] = {
-                    'baseline_views': self.channel_baselines.get(channel, 10000),
-                    'tier': stats['performance_tier'],
-                    'vfx_ratio': stats['vfx_ratio'],
-                    'short_film_ratio': stats['short_film_ratio'],
-                    'cta_ratio': stats['cta_ratio'],
-                    'social_ratio': stats['social_ratio'],
-                    'consistency': stats['consistency'],
-                    'video_count': stats['video_count'],
-                    'avg_views': stats['avg_views']
-                }
+            channel_stats.columns = ['avg_views', 'median_views', 'std_views', 'video_count',
+                                   'short_film_ratio', 'vfx_ratio', 'cta_ratio', 'social_ratio']
             
-            print(f"✅ Loaded perfect channel data for {len(self.channel_stats)} channels")
-            print(f"Baseline range: {min(self.channel_baselines.values()):,.0f} - {max(self.channel_baselines.values()):,.0f}")
+            # Create simplified channel features
+            self.channel_features = {}
+            
+            max_avg_views = channel_stats['avg_views'].max()
+            
+            for channel in channel_stats.index:
+                stats = channel_stats.loc[channel]
+                
+                # Simplified feature vector (8 features)
+                features = [
+                    # Core performance (normalized)
+                    stats['avg_views'] / max_avg_views,  # 0-1 range
+                    min(stats['video_count'] / 100.0, 1.0),  # Channel maturity
+                    
+                    # Content type patterns (from analysis)
+                    stats['short_film_ratio'],
+                    stats['vfx_ratio'],
+                    
+                    # Professional indicators (strong predictors from analysis)
+                    stats['cta_ratio'],
+                    stats['social_ratio'],
+                    
+                    # Performance tier (from analysis)
+                    1.0 if stats['avg_views'] > 1000000 else 0.0,  # Elite
+                    1.0 if stats['avg_views'] > 100000 else 0.0,   # High+
+                ]
+                
+                self.channel_features[channel] = features
+            
+            # Default for unknown channels (shouldn't happen but safety)
+            self.channel_features['<UNK>'] = [0.1, 0.1, 0.2, 0.1, 0.5, 0.4, 0.0, 0.0]
+            
+            print(f"✅ Loaded lightweight channel features for {len(channel_stats)} channels")
             
         except Exception as e:
-            print(f"❌ Error loading channel data: {e}")
-            self.channel_stats = {}
-            self.channel_baselines = {}
-            self.channel_tiers = {}
+            print(f"❌ Error loading channel insights: {e}")
+            self.channel_features = {'<UNK>': [0.5] * 8}
     
-    def _get_channel_baseline(self, channel):
-        """Get robust channel baseline prediction."""
-        return self.channel_baselines.get(channel, 10000)  # Default for unknown (shouldn't happen!)
-    
-    def _get_channel_tier(self, channel):
-        """Get channel performance tier."""
-        return self.channel_tiers.get(channel, 'Medium')
-    
-    def _compute_content_deviation_features(self, batch):
-        """Compute how this content deviates from channel norms."""
+    def _get_channel_features(self, channels):
+        """Get channel features for batch."""
         features = []
-        
+        for channel in channels:
+            features.append(self.channel_features.get(channel, self.channel_features['<UNK>']))
+        return torch.tensor(features, dtype=torch.float32)
+    
+    def _extract_content_features(self, batch):
+        """Extract basic content features that matter."""
+        features = []
         channels = batch.get("channel", ["<UNK>"] * len(batch["id"]))
         
         for i, text in enumerate(batch["text"]):
             channel = channels[i]
-            channel_stats = self.channel_stats.get(channel, {})
+            channel_feats = self.channel_features.get(channel, self.channel_features['<UNK>'])
             
             if not isinstance(text, str):
                 text = ""
             
-            # Parse content
+            # Parse title and description
             if " + " in text:
                 parts = text.split(" + ", 1)
                 title = parts[0].strip()
@@ -129,73 +156,56 @@ class PerfectChannelModel(nn.Module):
                 title = text.strip()
                 description = ""
             
-            # Content analysis
-            is_vfx_content = int(any(word in title.lower() for word in ['vfx', 'cgi', 'breakdown']))
+            # Content analysis relative to channel norms
             is_short_film = int(any(word in title.lower() for word in ['short film', 'animated short']))
+            is_vfx = int(any(word in title.lower() for word in ['vfx', 'cgi', 'breakdown']))
             has_cta = int(any(word in description.lower() for word in ['subscribe', 'like', 'share']))
             has_social = int(any(word in description.lower() for word in ['facebook', 'twitter', 'instagram']))
             
-            # Deviation from channel norms
-            expected_vfx = channel_stats.get('vfx_ratio', 0.1)
-            expected_short_film = channel_stats.get('short_film_ratio', 0.2)
-            expected_cta = channel_stats.get('cta_ratio', 0.5)
-            expected_social = channel_stats.get('social_ratio', 0.4)
+            # Key insight: Does this content match the channel's successful pattern?
+            channel_short_film_ratio = channel_feats[2]  # Expected short film ratio
+            channel_vfx_ratio = channel_feats[3]  # Expected VFX ratio
+            channel_cta_ratio = channel_feats[4]  # Expected CTA ratio
+            channel_social_ratio = channel_feats[5]  # Expected social ratio
             
-            # Deviation scores (positive = above normal for this channel)
-            vfx_deviation = is_vfx_content - expected_vfx
-            short_film_deviation = is_short_film - expected_short_film
-            cta_deviation = has_cta - expected_cta
-            social_deviation = has_social - expected_social
+            # Pattern matching scores (positive = matches successful pattern)
+            short_film_match = is_short_film if channel_short_film_ratio > 0.3 else (1 - is_short_film)
+            vfx_match = is_vfx if channel_vfx_ratio > 0.3 else (1 - is_vfx)
+            cta_match = has_cta if channel_cta_ratio > 0.5 else (1 - has_cta)
+            social_match = has_social if channel_social_ratio > 0.5 else (1 - has_social)
             
-            # Content quality indicators
-            title_quality_score = (
-                min(len(title) / 50.0, 1.0) * 0.3 +  # Good length
-                int('"' in title) * 0.2 +  # Has quotes
-                int(':' in title) * 0.2 +  # Has subtitle
-                int(any(c.isupper() for c in title)) * 0.3  # Has caps
-            )
+            # Simple quality indicators
+            title_quality = min(len(title) / 50.0, 1.0)
+            desc_quality = min(len(description) / 1000.0, 1.0)
             
-            desc_quality_score = min(len(description) / 1000.0, 1.0)
-            
-            feature_vector = [
-                vfx_deviation,
-                short_film_deviation,
-                cta_deviation,
-                social_deviation,
-                title_quality_score,
-                desc_quality_score,
-                # Channel context features
-                channel_stats.get('video_count', 50) / 100.0,  # Channel maturity
-                max(-1, min(1, channel_stats.get('consistency', 0))),  # Channel consistency
+            content_features = [
+                short_film_match,
+                vfx_match, 
+                cta_match,
+                social_match,
+                title_quality,
+                desc_quality,
+                # Channel context
+                channel_feats[0],  # Channel reputation
+                channel_feats[6],  # Is elite channel
             ]
             
-            features.append(feature_vector)
+            features.append(content_features)
         
         return torch.tensor(features, dtype=torch.float32)
     
     def forward(self, batch):
         device = next(self.parameters()).device
-        channels = batch.get("channel", ["<UNK>"] * len(batch["id"]))
         
-        # Get channel baseline predictions (VERY STRONG!)
-        baseline_predictions = []
-        channel_tiers = []
-        
-        for channel in channels:
-            baseline = self._get_channel_baseline(channel)
-            tier = self._get_channel_tier(channel)
-            baseline_predictions.append(baseline)
-            channel_tiers.append(tier)
-        
-        baseline_preds = torch.tensor(baseline_predictions, device=device, dtype=torch.float32).unsqueeze(1)
-        
-        # Content analysis
+        # Image processing (simplified)
         image_features = self.image_backbone(batch["image"])
+        image_pred = self.image_mlp(image_features)
         
-        # Text processing
+        # Text processing with channel context
         raw_text = list(batch["text"])
         processed_text = [text.strip() if isinstance(text, str) else "[EMPTY]" for text in raw_text]
         
+        # BERT encoding (shorter sequences to save memory)
         encoded_text = self.tokenizer(
             processed_text,
             padding='max_length',
@@ -209,170 +219,131 @@ class PerfectChannelModel(nn.Module):
         attention_mask = encoded_text['attention_mask'].to(device)
         
         text_outputs = self.text_backbone(input_ids=input_ids, attention_mask=attention_mask)
-        text_features = text_outputs.last_hidden_state[:, 0, :]
+        bert_features = text_outputs.last_hidden_state[:, 0, :]
         
-        # Content deviation features
-        deviation_features = self._compute_content_deviation_features(batch).to(device)
+        # Content analysis features
+        content_features = self._extract_content_features(batch).to(device)
         
-        # Tier-specific adjustments
-        tier_adjustments = []
+        # Combine text + content features
+        combined_features = torch.cat([bert_features, content_features], dim=1)
+        text_pred = self.text_mlp(combined_features)
         
-        for i, tier in enumerate(channel_tiers):
-            # Get features for this sample
-            img_feat = image_features[i:i+1]
-            txt_feat = text_features[i:i+1]
-            dev_feat = deviation_features[i:i+1]
-            
-            # Get tier-specific model
-            tier_model = self.tier_models[tier]
-            adjustment = tier_model(img_feat, txt_feat, dev_feat)
-            tier_adjustments.append(adjustment)
-        
-        tier_adjustments = torch.cat(tier_adjustments, dim=0)
-        
-        # Final prediction: Strong channel baseline + learned adjustments
-        final_pred = (self.channel_baseline_weight * baseline_preds + 
-                     self.model_adjustment_weight * tier_adjustments)
+        # Final prediction
+        final_pred = self.weight_image * image_pred + self.weight_text * text_pred
         
         return final_pred
 
 
-class TierSpecificModel(nn.Module):
-    """Tier-specific adjustment model."""
-    def __init__(self, image_dim, text_dim, tier_type):
-        super().__init__()
-        
-        self.tier_type = tier_type
-        
-        if tier_type == "elite":
-            # Elite channels: content quality matters most
-            self.image_head = nn.Sequential(
-                nn.Linear(image_dim, 256),
-                nn.ReLU(),
-                nn.Linear(256, 64)
-            )
-            
-            self.text_head = nn.Sequential(
-                nn.Linear(text_dim, 512),
-                nn.ReLU(),
-                nn.Dropout(0.1),
-                nn.Linear(512, 128)
-            )
-            
-            self.fusion = nn.Sequential(
-                nn.Linear(64 + 128 + 8, 128),  # image + text + deviation features
-                nn.ReLU(),
-                nn.Dropout(0.1),
-                nn.Linear(128, 64),
-                nn.ReLU(),
-                nn.Linear(64, 1)
-            )
-            
-        elif tier_type == "high":
-            # High tier: balanced approach
-            self.image_head = nn.Sequential(
-                nn.Linear(image_dim, 256),
-                nn.ReLU(),
-                nn.Linear(256, 64)
-            )
-            
-            self.text_head = nn.Sequential(
-                nn.Linear(text_dim, 256),
-                nn.ReLU(),
-                nn.Linear(256, 64)
-            )
-            
-            self.fusion = nn.Sequential(
-                nn.Linear(64 + 64 + 8, 96),
-                nn.ReLU(),
-                nn.Linear(96, 32),
-                nn.ReLU(),
-                nn.Linear(32, 1)
-            )
-            
-        else:  # medium and low
-            # Medium/Low tier: simpler models
-            self.image_head = nn.Sequential(
-                nn.Linear(image_dim, 128),
-                nn.ReLU(),
-                nn.Linear(128, 32)
-            )
-            
-            self.text_head = nn.Sequential(
-                nn.Linear(text_dim, 128),
-                nn.ReLU(),
-                nn.Linear(128, 32)
-            )
-            
-            self.fusion = nn.Sequential(
-                nn.Linear(32 + 32 + 8, 48),
-                nn.ReLU(),
-                nn.Linear(48, 16),
-                nn.ReLU(),
-                nn.Linear(16, 1)
-            )
-    
-    def forward(self, image_features, text_features, deviation_features):
-        img_processed = self.image_head(image_features)
-        txt_processed = self.text_head(text_features)
-        
-        combined = torch.cat([img_processed, txt_processed, deviation_features], dim=1)
-        adjustment = self.fusion(combined)
-        
-        return adjustment
-
-
-class SimpleChannelBaseline(nn.Module):
+class UltraLightModel(nn.Module):
     """
-    Ultra-simple baseline using just channel medians + tiny adjustments.
-    This should be VERY strong given perfect channel coverage!
+    Ultra-lightweight model for memory-constrained environments.
+    Uses only the most essential features from your analysis.
     """
     def __init__(self, dataset_path="dataset"):
         super().__init__()
         
-        # Load channel baselines
-        train_df = pd.read_csv(f"{dataset_path}/train_val.csv")
-        self.channel_medians = train_df.groupby('channel')['views'].median().to_dict()
+        # Load only essential channel data
+        self._load_essential_data(dataset_path)
         
-        # Tiny adjustment network
-        self.adjustment = nn.Sequential(
-            nn.Linear(5, 16),
+        # Tiny networks
+        self.channel_net = nn.Sequential(
+            nn.Linear(4, 32),  # Only 4 key channel features
             nn.ReLU(),
-            nn.Linear(16, 1),
-            nn.Tanh()  # Bounded adjustments
+            nn.Linear(32, 16),
+            nn.ReLU(),
+            nn.Linear(16, 1)
         )
         
-        print(f"✅ Simple baseline for {len(self.channel_medians)} channels")
+        self.content_net = nn.Sequential(
+            nn.Linear(6, 24),  # Only 6 key content features  
+            nn.ReLU(),
+            nn.Linear(24, 12),
+            nn.ReLU(),
+            nn.Linear(12, 1)
+        )
+        
+        # Simple combination
+        self.combiner = nn.Sequential(
+            nn.Linear(2, 8),
+            nn.ReLU(),
+            nn.Linear(8, 1)
+        )
+    
+    def _load_essential_data(self, dataset_path):
+        """Load only the most essential channel data."""
+        try:
+            train_df = pd.read_csv(f"{dataset_path}/train_val.csv")
+            
+            # Ultra-simple channel features (only the most predictive)
+            channel_stats = train_df.groupby('channel').agg({
+                'views': 'mean',
+                'title': lambda x: x.str.lower().str.contains('short film|animated short').mean(),
+                'description': [
+                    lambda x: x.fillna('').str.lower().str.contains('subscribe|like|share').mean(),
+                    lambda x: x.fillna('').str.lower().str.contains('facebook|twitter|instagram').mean(),
+                ]
+            })
+            
+            channel_stats.columns = ['avg_views', 'short_film_ratio', 'cta_ratio', 'social_ratio']
+            
+            # Normalize
+            max_views = channel_stats['avg_views'].max()
+            
+            self.channel_data = {}
+            for channel in channel_stats.index:
+                stats = channel_stats.loc[channel]
+                self.channel_data[channel] = [
+                    stats['avg_views'] / max_views,  # Normalized reputation
+                    stats['short_film_ratio'],       # Content type
+                    stats['cta_ratio'],              # Professional marker
+                    stats['social_ratio'],           # Professional marker
+                ]
+            
+            self.channel_data['<UNK>'] = [0.1, 0.2, 0.5, 0.4]
+            
+            print(f"✅ Ultra-light model with {len(channel_stats)} channels")
+            
+        except Exception as e:
+            print(f"❌ Error: {e}")
+            self.channel_data = {'<UNK>': [0.5, 0.2, 0.5, 0.4]}
     
     def forward(self, batch):
         device = next(self.parameters()).device
+        
+        # Channel features
         channels = batch.get("channel", ["<UNK>"] * len(batch["id"]))
+        channel_features = []
         
-        # Channel baselines
-        baselines = [self.channel_medians.get(ch, 10000) for ch in channels]
-        baselines = torch.tensor(baselines, device=device, dtype=torch.float32).unsqueeze(1)
+        for channel in channels:
+            channel_features.append(self.channel_data.get(channel, self.channel_data['<UNK>']))
         
-        # Tiny content adjustments
-        adjustments = []
+        channel_features = torch.tensor(channel_features, device=device, dtype=torch.float32)
+        channel_pred = self.channel_net(channel_features)
+        
+        # Ultra-simple content features
+        content_features = []
         for text in batch["text"]:
             if not isinstance(text, str):
                 text = ""
             
-            # Very basic features
             title = text.split(" + ")[0] if " + " in text else text
+            description = text.split(" + ", 1)[1] if " + " in text and len(text.split(" + ")) > 1 else ""
+            
             features = [
-                min(len(title) / 50.0, 1.0),
-                int('"' in title),
-                int(':' in title),
-                int('!' in title),
-                int(any(c.isupper() for c in title))
+                min(len(title) / 50.0, 1.0),  # Title length
+                int(any(word in title.lower() for word in ['short film', 'animated short'])),
+                int(any(word in title.lower() for word in ['vfx', 'cgi', 'breakdown'])),
+                int(any(word in description.lower() for word in ['subscribe', 'like', 'share'])),
+                int(any(word in description.lower() for word in ['facebook', 'twitter', 'instagram'])),
+                min(len(description) / 1000.0, 1.0),  # Description length
             ]
-            adjustments.append(features)
+            content_features.append(features)
         
-        adjustments = torch.tensor(adjustments, device=device, dtype=torch.float32)
-        adjustment_factors = self.adjustment(adjustments)
+        content_features = torch.tensor(content_features, device=device, dtype=torch.float32)
+        content_pred = self.content_net(content_features)
         
-        # Final: baseline * (1 + small_adjustment)
-        final_pred = baselines * (1 + 0.1 * adjustment_factors)
+        # Combine
+        combined = torch.cat([channel_pred, content_pred], dim=1)
+        final_pred = self.combiner(combined)
         
         return final_pred
