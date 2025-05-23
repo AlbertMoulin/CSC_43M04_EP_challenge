@@ -54,7 +54,7 @@ class EnhancedPhase1LargeMLP(nn.Module):
         
         # Enhanced text branch from Phase 1
         self.tokenizer = AutoTokenizer.from_pretrained(text_model_name)
-        self.text_backbone = AutoModelForCausalLM.from_pretrained(text_model_name)
+        self.text_backbone = AutoModelForCausalLM.from_pretrained(text_model_name,torch_dtype=torch.float16)
         text_dim = self.text_backbone.config.hidden_size # 1152
         self.max_token_length = max_token_length
         
