@@ -3,8 +3,8 @@ import wandb
 import hydra
 from tqdm import tqdm
 
+
 from utils.sanity import show_images
-from utils.weight_monitor import log_modality_weights
 
 
 @hydra.main(config_path="configs", config_name="train")
@@ -41,12 +41,8 @@ def train(cfg):
         num_samples_train = 0
         pbar = tqdm(train_loader, desc=f"Epoch {epoch}", leave=False)
         for i, batch in enumerate(pbar):
-            # Move tensors to device
             batch["image"] = batch["image"].to(device)
             batch["target"] = batch["target"].to(device).squeeze()
-            batch["channel_idx"] = batch["channel_idx"].to(device)
-            batch["date_features"] = batch["date_features"].to(device)
-            
             preds = model(batch).squeeze()
             loss = loss_fn(preds, batch["target"])
             (
@@ -79,12 +75,8 @@ def train(cfg):
         model.eval()
         if val_loader is not None: 
             for _, batch in enumerate(val_loader):
-                # Move tensors to device
                 batch["image"] = batch["image"].to(device)
                 batch["target"] = batch["target"].to(device).squeeze()
-                batch["channel_idx"] = batch["channel_idx"].to(device)
-                batch["date_features"] = batch["date_features"].to(device)
-                
                 with torch.no_grad():
                     preds = model(batch).squeeze()
                 loss = loss_fn(preds, batch["target"])
@@ -103,29 +95,13 @@ def train(cfg):
                 else None
             )
 
-        # Print epoch summary and log weights
-        if val_loader is not None:
-            print(
-                f"""Epoch {epoch}: 
-                Training metrics:
-                - Train Loss: {epoch_train_loss:.4f},
-                Validation metrics: 
-                - Val Loss: {epoch_val_loss:.4f}"""
-            )
-        else:
-            print(
-                f"""Epoch {epoch}: 
-                Training metrics:
-                - Train Loss: {epoch_train_loss:.4f}"""
-            )
-        
-        # Log modality weights
-        log_modality_weights(model, logger, epoch)
-        print(
-                f"""Epoch {epoch}: 
-                Training metrics:
-                - Train Loss: {epoch_train_loss:.4f}"""
-            )
+    print(
+        f"""Epoch {epoch}: 
+        Training metrics:
+        - Train Loss: {epoch_train_loss:.4f},
+        Validation metrics: 
+        - Val Loss: {epoch_val_loss:.4f}"""
+    )
 
     if cfg.log:
         logger.finish()

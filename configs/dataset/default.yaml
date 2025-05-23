@@ -2,6 +2,6 @@ defaults:
     - val_transform: simple
     - train_transform: simple
 
-batch_size: 16  # Smaller batch for rich features
-num_workers: 8
-metadata: ["title", "description", "channel", "date"]
+batch_size: 128
+num_workers: 16
+metadata: ["title"]

@@ -1,8 +1,0 @@
-instance:
-  _target_: models.multimodal.MultimodalViewModel
-  dinov2_frozen: True
-  bert_frozen: True
-  dropout_rate: 0.2
-  dataset_path: ${data_dir}
-
-name: MULTIMODAL

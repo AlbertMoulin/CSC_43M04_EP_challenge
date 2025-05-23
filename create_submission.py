@@ -22,7 +22,7 @@ def create_submission(cfg):
     )
     # - Load model and checkpoint
     model = hydra.utils.instantiate(cfg.model.instance).to(device)
-    checkpoint = torch.load(r'checkpoints/SIMPLE_MULTIMODAL_2025-05-22_16-56-41.pt')
+    checkpoint = torch.load(cfg.checkpoint_path)
     print(f"Loading model from checkpoint: {cfg.checkpoint_path}")
     model.load_state_dict(checkpoint)
     print("Model loaded")
@@ -31,11 +31,7 @@ def create_submission(cfg):
     submission = pd.DataFrame(columns=["ID", "views"])
 
     for i, batch in enumerate(test_loader):
-        # Move all tensors to device
         batch["image"] = batch["image"].to(device)
-        batch["channel_idx"] = batch["channel_idx"].to(device)
-        batch["date_features"] = batch["date_features"].to(device)
-        
         with torch.no_grad():
             preds = model(batch).squeeze().cpu().numpy()
         submission = pd.concat(

@@ -2,7 +2,7 @@ defaults:
     - _self_
     - dataset: default
     - optim: adamw
-    - model: larger
+    - model: dinov2
     - loss_fn: msle
 
 epochs: 20
@@ -23,8 +23,6 @@ datamodule:
   batch_size: ${dataset.batch_size}
   num_workers: ${dataset.num_workers}
   metadata: ${dataset.metadata}
-  val_split: 0.2
-  random_seed: 42
 
 data_dir: ${root_dir}/dataset/
 root_dir:  ${hydra:runtime.cwd}
