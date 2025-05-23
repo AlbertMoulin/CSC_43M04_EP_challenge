@@ -4,4 +4,5 @@ defaults:
 
 batch_size: 128
 num_workers: 16
-metadata: ["title","date"]
+metadata: ["title"]
+date_column: "date"  # Matches your CSV structure

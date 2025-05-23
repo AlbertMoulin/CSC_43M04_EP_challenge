@@ -14,6 +14,7 @@ class DataModule:
         num_workers,
         metadata=["title"],
         val_split=0.2,  # 20% for validation
+        date_column=None,  # New parameter for date column
     ):
         self.dataset_path = dataset_path
         self.train_transform = train_transform  
@@ -22,6 +23,7 @@ class DataModule:
         self.num_workers = num_workers
         self.metadata = metadata
         self.val_split = val_split
+        self.date_column = date_column
 
     def train_dataloader(self):
         """Train dataloader with subset of indices."""
@@ -30,6 +32,7 @@ class DataModule:
             "train_val",
             transforms=self.train_transform,
             metadata=self.metadata,
+            date_column=self.date_column,
         )
         
         # Calculate train indices (first 80%)
@@ -54,6 +57,7 @@ class DataModule:
             "train_val",
             transforms=self.test_transform,  # Use test transforms for validation
             metadata=self.metadata,
+            date_column=self.date_column,
         )
         
         # Calculate val indices (last 20%)
@@ -78,6 +82,7 @@ class DataModule:
             "test",
             transforms=self.test_transform,
             metadata=self.metadata,
+            date_column=self.date_column,
         )
         return DataLoader(
             dataset,

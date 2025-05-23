@@ -1,10 +1,12 @@
 instance:
-  _target_: models.simplified_multimodal.EnhancedPhase1LargeMLP
+  _target_: models.enhanced_multimodal.EnhancedMultimodalWithDate
   image_model_frozen: True
   text_model_frozen: True
   final_mlp_layers: [1024, 1024, 1024]
   max_token_length: 256
   dropout_rate: 0.1
   text_model_name: google/gemma-3-1b-it
+  date_embedding_dim: 32
+  use_date_features: True
 
-name: SIMPLE_MULTIMODAL
+name: ENHANCED_MULTIMODAL_DATE
