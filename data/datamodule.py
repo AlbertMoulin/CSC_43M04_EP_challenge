@@ -31,19 +31,19 @@ class DataModule:
         # Convert date strings to datetime objects for sorting
         train_val_info['datetime'] = pd.to_datetime(train_val_info['date'])
         
-        # Sort by date to get temporal order
-        train_val_info_sorted = train_val_info.sort_values('datetime').reset_index(drop=True)
+        # Sort by date but keep original indices
+        train_val_info_sorted = train_val_info.sort_values('datetime')  # Remove reset_index(drop=True)
         
         # Calculate split point (most recent 20% for validation)
         total_size = len(train_val_info_sorted)
         val_size = int(total_size * self.val_split)
         train_size = total_size - val_size
         
-        # Get the original indices after sorting
+        # Get the ORIGINAL indices (before sorting)
         train_indices = train_val_info_sorted.iloc[:train_size].index.tolist()
         val_indices = train_val_info_sorted.iloc[train_size:].index.tolist()
         
-        # Print some info about the split
+        # Print info (using sorted DataFrame for date ranges)
         train_date_range = (
             train_val_info_sorted.iloc[0]['datetime'].strftime('%Y-%m-%d'),
             train_val_info_sorted.iloc[train_size-1]['datetime'].strftime('%Y-%m-%d')
@@ -113,3 +113,28 @@ class DataModule:
             shuffle=False,
             num_workers=self.num_workers,
         )
+    
+
+
+if __name__ == "__main__":
+    # Example usage
+    datamodule = DataModule(
+        dataset_path="dataset",
+        train_transform=None,  # Replace with actual transforms
+        test_transform=None,   # Replace with actual transforms
+        batch_size=32,
+        num_workers=4,
+        metadata=["title", "description"]
+    )
+
+    print(datamodule._get_temporal_split_indices())
+    
+    train_loader = datamodule.train_dataloader()
+    val_loader = datamodule.val_dataloader()
+    test_loader = datamodule.test_dataloader()
+    
+
+
+    print(f"Train batches: {len(train_loader)}")
+    print(f"Validation batches: {len(val_loader)}")
+    print(f"Test batches: {len(test_loader)}")
