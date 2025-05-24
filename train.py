@@ -86,8 +86,11 @@ def train(cfg):
             epoch_val_loss /= num_samples_val
             if epoch_val_loss < best_val_loss:
                 best_val_loss = epoch_val_loss
+                print(
+                    f"New best validation loss: {best_val_loss:.4f} at epoch {epoch}"
+                )
                 torch.save(
-                    model.state_dict(), cfg.checkpoint_path.replace(".pth", "_best_val_loss.pth")
+                    model.state_dict(), cfg.checkpoint_path.replace(".pt", "_best_val_loss.pt")
                 )
             val_metrics["val/loss_epoch"] = epoch_val_loss
             (
