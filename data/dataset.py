@@ -22,7 +22,12 @@ class Dataset(torch.utils.data.Dataset):
         # date
         self.date = info["date"].values
         # transform the date into [0,1] range representing the date in the year
-        self.date = (pd.to_datetime(self.date).dt.dayofyear - 1) / 365.0
+        self.date = (pd.to_datetime(self.date).dayofyear - 1) / 365.0
+        # channel
+        self.channel = info["channel"].values
+        # map the 46 unique channels to integers
+        self.channel = pd.Categorical(self.channel).codes
+        print(self.channel)
 
         # - transforms
         self.transforms = transforms
@@ -46,3 +51,13 @@ class Dataset(torch.utils.data.Dataset):
         if hasattr(self, "targets"):
             value["target"] = torch.tensor(self.targets[idx], dtype=torch.float32)
         return value
+    
+
+if __name__ == "__main__":
+    dataset = Dataset(
+        dataset_path="dataset",
+        split="test",
+        transforms=None,  # Replace with actual transforms
+        metadata=["title"]
+    )
+    
