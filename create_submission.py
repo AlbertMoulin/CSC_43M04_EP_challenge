@@ -25,21 +25,22 @@ def create_submission(cfg):
     checkpoint = torch.load(r'checkpoints/SIMPLE_MULTIMODAL_2025-05-24_23-02-14_best_val_loss.pt')
     print(f"Loading model from checkpoint: {cfg.checkpoint_path}")
     model.load_state_dict(checkpoint)
+    model.eval()
     print("Model loaded")
 
     # - Create submission.csv
     submission = pd.DataFrame(columns=["ID", "views"])
-
-    for i, batch in enumerate(test_loader):
-        batch["image"] = batch["image"].to(device)
-        with torch.no_grad():
+    with torch.no_grad():
+        for i, batch in enumerate(test_loader):
+            batch["image"] = batch["image"].to(device)
+            
             preds = model(batch).squeeze().cpu().numpy()
-        submission = pd.concat(
-            [
-                submission,
-                pd.DataFrame({"ID": batch["id"], "views": preds}),
-            ]
-        )
+            submission = pd.concat(
+                [
+                    submission,
+                    pd.DataFrame({"ID": batch["id"], "views": preds}),
+                ]
+            )
     submission.to_csv(f"{cfg.root_dir}/submission.csv", index=False)
 
 
