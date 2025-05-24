@@ -22,7 +22,7 @@ def create_submission(cfg):
     )
     # - Load model and checkpoint
     model = hydra.utils.instantiate(cfg.model.instance).to(device)
-    checkpoint = torch.load(cfg.checkpoint_path)
+    checkpoint = torch.load(r'checkpoints/SIMPLE_MULTIMODAL_2025-05-24_13-20-52.pt')
     print(f"Loading model from checkpoint: {cfg.checkpoint_path}")
     model.load_state_dict(checkpoint)
     print("Model loaded")

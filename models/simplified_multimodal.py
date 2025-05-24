@@ -91,7 +91,13 @@ class EnhancedPhase1LargeMLP(nn.Module):
         text_outputs = self.text_backbone(input_ids=input_ids, attention_mask=attention_mask, output_hidden_states=True)
         last_hidden_state = text_outputs.hidden_states[-1]  # [CLS] token
         last_token_hidden = last_hidden_state[:, -1, :]
-        # Concatenate image and text features
+
+        # # Embedding the year date
+        # if "date" in batch:
+        #     date = batch["date"].unsqueeze(1).to(device)
+        #     date_embedding = date.repeat(1, last_token_hidden.size(1))
+
+        # Concatenate image and text and date features
         combined_features = torch.cat((image_features, last_token_hidden), dim=1)
         # MLP processing
         mlp_output = self.mlp(combined_features)

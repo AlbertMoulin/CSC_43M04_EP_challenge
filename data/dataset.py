@@ -19,6 +19,10 @@ class Dataset(torch.utils.data.Dataset):
         self.ids = info["id"].values
         # - text
         self.text = info["meta"].values
+        # # date
+        # self.date = info["date"].values
+        # # transform the date into [0,1] range representing the date in the year
+        # self.date = (pd.to_datetime(self.date).dt.dayofyear - 1) / 365.0
 
         # - transforms
         self.transforms = transforms
@@ -35,7 +39,7 @@ class Dataset(torch.utils.data.Dataset):
         value = {
             "id": self.ids[idx],
             "image": image,
-            "text": self.text[idx],
+            "text": self.text[idx]
         }
         # - don't have the target for test
         if hasattr(self, "targets"):
