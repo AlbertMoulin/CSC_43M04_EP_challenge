@@ -40,7 +40,8 @@ class EnhancedPhase1LargeMLP(nn.Module):
                  final_mlp_layers=[1024, 1024, 1024],
                  max_token_length=256,  # Enhanced from Phase 1
                  dropout_rate=0.1,      # Add some regularization
-                 text_model_name="google/gemma-3-1b-it"):
+                 text_model_name="google/gemma-3-1b-it",
+                 proportion_date=0.1):
         super().__init__()
         
         # Image branch with [1024]*3 MLP
@@ -62,8 +63,11 @@ class EnhancedPhase1LargeMLP(nn.Module):
             for param in self.text_backbone.parameters():
                 param.requires_grad = False
         
+        # Proportion of date in the final MLP
+        self.proportion_date = proportion_date
+        self.ind_date_dim = int(self.proportion_date * (image_dim + text_dim))
         # final MLP
-        self.mlp = MLP(input_dim=image_dim + text_dim, output_dim=1, hidden_dim=final_mlp_layers, dropout_rate=dropout_rate)
+        self.mlp = MLP(input_dim=image_dim + text_dim + self.ind_date_dim , output_dim=1, hidden_dim=final_mlp_layers, dropout_rate=dropout_rate)
         
     
     def forward(self, batch):
@@ -92,13 +96,13 @@ class EnhancedPhase1LargeMLP(nn.Module):
         last_hidden_state = text_outputs.hidden_states[-1]  # [CLS] token
         last_token_hidden = last_hidden_state[:, -1, :]
 
-        # # Embedding the year date
-        # if "date" in batch:
-        #     date = batch["date"].unsqueeze(1).to(device)
-        #     date_embedding = date.repeat(1, last_token_hidden.size(1))
+        # Embedding the year date
+        if "date" in batch:
+            date = batch["date"].unsqueeze(1).to(device)
+            date_embedding = date.repeat(1, self.ind_date_dim)
 
         # Concatenate image and text and date features
-        combined_features = torch.cat((image_features, last_token_hidden), dim=1)
+        combined_features = torch.cat((image_features, last_token_hidden, date_embedding), dim=1)
         # MLP processing
         mlp_output = self.mlp(combined_features)
         return mlp_output
