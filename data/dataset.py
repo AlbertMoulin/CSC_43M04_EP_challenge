@@ -44,7 +44,8 @@ class Dataset(torch.utils.data.Dataset):
             "id": self.ids[idx],
             "image": image,
             "text": self.text[idx],
-            "date": self.date[idx]
+            "date": self.date[idx],
+            "channel": self.channel[idx],
         }
         # - don't have the target for test
         if hasattr(self, "targets"):
