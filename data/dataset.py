@@ -27,7 +27,6 @@ class Dataset(torch.utils.data.Dataset):
         self.channel = info["channel"].values
         # map the 46 unique channels to integers
         self.channel = pd.Categorical(self.channel).codes
-        print(self.channel)
 
         # - transforms
         self.transforms = transforms
