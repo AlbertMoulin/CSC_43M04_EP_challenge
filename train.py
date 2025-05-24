@@ -32,7 +32,7 @@ def train(cfg):
         logger.log(
             {"sanity_checks/val_images": wandb.Image(val_sanity)}
         ) if logger is not None else None
-
+    best_val_loss = float("inf")
     # -- loop over epochs
     for epoch in tqdm(range(cfg.epochs), desc="Epochs"):
         # -- loop over training batches
@@ -69,7 +69,7 @@ def train(cfg):
         )
 
         # -- validation loop
-        best_val_loss = float("inf")
+        
         val_metrics = {}
         epoch_val_loss = 0
         num_samples_val = 0
@@ -84,6 +84,7 @@ def train(cfg):
                 epoch_val_loss += loss.detach().cpu().numpy() * len(batch["image"])
                 num_samples_val += len(batch["image"])
             epoch_val_loss /= num_samples_val
+
             if epoch_val_loss < best_val_loss:
                 best_val_loss = epoch_val_loss
                 print(

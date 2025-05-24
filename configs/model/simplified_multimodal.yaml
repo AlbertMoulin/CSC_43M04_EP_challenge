@@ -7,6 +7,6 @@ instance:
   dropout_rate: 0.1
   text_model_name: google/gemma-3-1b-it
   proportion_date : 0.1
-  proportion_channel : 0.2
+  proportion_channel : 0.1
 
 name: SIMPLE_MULTIMODAL
