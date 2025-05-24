@@ -13,7 +13,7 @@ class DataModule:
         batch_size,
         num_workers,
         metadata=["title"],
-        val_split=0.2,  # 20% for validation
+        val_split=0.25,  # 20% for validation
     ):
         self.dataset_path = dataset_path
         self.train_transform = train_transform  

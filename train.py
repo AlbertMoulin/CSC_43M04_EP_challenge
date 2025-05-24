@@ -69,6 +69,7 @@ def train(cfg):
         )
 
         # -- validation loop
+        best_val_loss = float("inf")
         val_metrics = {}
         epoch_val_loss = 0
         num_samples_val = 0
@@ -83,6 +84,11 @@ def train(cfg):
                 epoch_val_loss += loss.detach().cpu().numpy() * len(batch["image"])
                 num_samples_val += len(batch["image"])
             epoch_val_loss /= num_samples_val
+            if epoch_val_loss < best_val_loss:
+                best_val_loss = epoch_val_loss
+                torch.save(
+                    model.state_dict(), cfg.checkpoint_path.replace(".pth", "_best_val_loss.pth")
+                )
             val_metrics["val/loss_epoch"] = epoch_val_loss
             (
                 logger.log(
@@ -94,6 +100,7 @@ def train(cfg):
                 if logger is not None
                 else None
             )
+
 
     print(
         f"""Epoch {epoch}: 
