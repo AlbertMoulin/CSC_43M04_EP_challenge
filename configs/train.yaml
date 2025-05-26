@@ -2,7 +2,7 @@ defaults:
     - _self_
     - dataset: default
     - optim: adamw
-    - model: simplified_multimodal
+    - model: cross_modal
     - loss_fn: msle
 
 epochs: 20

@@ -1,0 +1,15 @@
+# configs/model/cross_modal.yaml
+instance:
+  _target_: models.cross_modal_multimodal.EnhancedCrossModalModel
+  image_model_frozen: True
+  text_model_frozen: True
+  final_mlp_layers: [1024, 1024, 1024]  # Keep your original
+  max_token_length: 256                 # Keep your original
+  dropout_rate: 0.2
+  text_model_name: distilbert-base-uncased  # Much smaller model
+  proportion_date: 0.1
+  proportion_channel: 0.1
+  cross_modal_hidden_dim: 256
+  cross_modal_heads: 4
+
+name: CROSS_MODAL
