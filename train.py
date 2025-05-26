@@ -6,6 +6,8 @@ from tqdm import tqdm
 
 from utils.sanity import show_images
 
+torch.cuda.empty_cache()
+
 
 @hydra.main(config_path="configs", config_name="train")
 def train(cfg):
@@ -16,6 +18,8 @@ def train(cfg):
     )
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = hydra.utils.instantiate(cfg.model.instance).to(device)
+    # checkpoint = torch.load(r'checkpoints/SIMPLE_MULTIMODAL_2025-05-24_23-02-14_best_val_loss.pt', map_location=device)
+    # model.load_state_dict(checkpoint)
     optimizer = hydra.utils.instantiate(cfg.optim, params=model.parameters())
     loss_fn = hydra.utils.instantiate(cfg.loss_fn)
     datamodule = hydra.utils.instantiate(cfg.datamodule)
