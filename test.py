@@ -40,3 +40,12 @@ print(f"Max prediction: {predictions.max():,.0f}")
 print(f"Mean prediction: {predictions.mean():,.0f}")
 print(f"Std deviation: {predictions.std():,.0f}")
 print(f"Unique values: {len(set(predictions))}")
+print(f"total predictions: {len(predictions)}")
+
+# plot training data distribution of views
+train_data = pd.read_csv("dataset/train_val.csv")
+plt.hist(train_data["views"], bins=50)
+plt.title("Distribution of Training Views")
+plt.xlabel("Views")
+plt.ylabel("Frequency")
+plt.savefig('train_data_distribution.png')
