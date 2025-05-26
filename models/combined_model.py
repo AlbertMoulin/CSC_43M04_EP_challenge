@@ -62,10 +62,8 @@ class MultimodalCombined(nn.Module):
                 text_model_name: "distilbert-base-uncased",
                 image_model_frozen=True,
                 text_model_frozen=True,
-                small_mlp_indim = 768,
-                small_mlp_num_layers = 2,
-                final_mlp_indim = 64,
-                final_mlp_hidden_dim = [32, 16],
+                mlp_indim = 1024,
+                mlp_hidden_dim = [512, 256, 128],
                 text_proportion=0.2,
                 channel_proportion=0.1,
                 date_proportion=0.1,
@@ -78,12 +76,12 @@ class MultimodalCombined(nn.Module):
         assert int(text_proportion + channel_proportion + date_proportion + img_proportion + year_proportion) == 1, f"Proportions must sum to 1. Sum = {text_proportion + channel_proportion + date_proportion + img_proportion + year_proportion}"
        
         # Image branch
-        self.outimg_dim = int(small_mlp_indim*img_proportion)
+        self.outimg_dim = int(mlp_indim*img_proportion)
         self.image_backbone = torch.hub.load("facebookresearch/dinov2", "dinov2_vitb14_reg")
         self.image_backbone.head = nn.Identity()
         image_dim = self.image_backbone.norm.normalized_shape[0]  # 768
 
-        if small_mlp_indim is not None:
+        if mlp_indim is not None:
             self.img_proj = nn.Linear(image_dim, self.outimg_dim)
         else:
             self.img_proj = nn.Identity()
@@ -93,7 +91,7 @@ class MultimodalCombined(nn.Module):
                 param.requires_grad = False
         
         # Text branch
-        self.outtext_dim = int(small_mlp_indim*text_proportion)
+        self.outtext_dim = int(mlp_indim*text_proportion)
         self.text_backbone = None
         if "bert" in text_model_name:
             self.tokenizer = AutoTokenizer.from_pretrained(text_model_name)
@@ -108,7 +106,7 @@ class MultimodalCombined(nn.Module):
         else:
             raise ValueError("Unsupported text model. Please use a supported model name.")
         
-        if small_mlp_indim is not None:
+        if mlp_indim is not None:
             self.text_proj = nn.Linear(text_dim, self.outtext_dim)
         else:
             self.text_proj = nn.Identity()
@@ -118,21 +116,21 @@ class MultimodalCombined(nn.Module):
                 param.requires_grad = False
 
         # Date (already preprocessed)
-        if small_mlp_indim is not None:
-            self.outdate_dim = int(small_mlp_indim*date_proportion)
-            self.date_proj = nn.Linear(5, int(small_mlp_indim*date_proportion))
+        if mlp_indim is not None:
+            self.outdate_dim = int(mlp_indim*date_proportion)
+            self.date_proj = nn.Linear(5, int(mlp_indim*date_proportion))
         else:
             self.date_proj = nn.Identity()
         
         # Year (already preprocessed)
-        if small_mlp_indim is not None:
-            self.outyear_dim = int(small_mlp_indim*year_proportion)
+        if mlp_indim is not None:
+            self.outyear_dim = int(mlp_indim*year_proportion)
             self.year_proj = nn.Linear(1, self.outyear_dim)
         else:
             self.year_proj = nn.Identity()
         
         # Channel embeddings
-        self.channel_embedding_dim = small_mlp_indim - self.outimg_dim - self.outtext_dim - self.outdate_dim - self.outyear_dim
+        self.channel_embedding_dim = (mlp_indim - self.outimg_dim - self.outtext_dim - self.outdate_dim - self.outyear_dim)//2
         # We'll initialize this after seeing the data, but reserve space
         self.channel_embedding = None
         self.channel_to_idx = {}
@@ -141,21 +139,9 @@ class MultimodalCombined(nn.Module):
         # Dynamic weights for concatenation
         self.branch_weights = nn.Parameter(torch.ones(2))
 
-        # Final MLP - input size will be image + text + channel + temporal
-        self.mlp_channel_text_img = ImprovedMLPRegressor(input_dim=
-            self.outimg_dim + self.outtext_dim + self.channel_embedding_dim,
-            hidden_dim=[small_mlp_indim//(2**i) for i in range(1,small_mlp_num_layers+1)],
-            output_dim=final_mlp_indim//2,
-            dropout=dropout_rate
-        )
-        self.mlp_channel_year_date = ImprovedMLPRegressor(input_dim=
-            self.outyear_dim + self.outdate_dim + self.channel_embedding_dim,
-            hidden_dim=[small_mlp_indim//(2**i) for i in range(1,small_mlp_num_layers+1)],
-            output_dim=final_mlp_indim//2,
-            dropout=dropout_rate
-        )
-        self.final_mlp = ImprovedMLPRegressor(input_dim=final_mlp_indim,
-            hidden_dim=final_mlp_hidden_dim,
+        # MLP
+        self.final_mlp = ImprovedMLPRegressor(input_dim=self.outimg_dim + self.outtext_dim + self.outdate_dim + self.outyear_dim + 2 * self.channel_embedding_dim,
+            hidden_dim=mlp_hidden_dim,
             output_dim=1,  # Final output is a single value
             dropout=dropout_rate
         )
@@ -245,12 +231,12 @@ class MultimodalCombined(nn.Module):
 
         # Apply MLPs with dynamic weights
 
-        mlp1_out = self.mlp_channel_text_img(channel_text_img_features)
-        mlp2_out = self.mlp_channel_year_date(channel_year_date_features)
         w = torch.softmax(self.branch_weights, dim=0) #to sum to 1
-        mlp1_out = w[0] * mlp1_out
-        mlp2_out = w[1] * mlp2_out
-        combined_features = torch.cat([mlp1_out, mlp2_out], dim=1)
+        
+        combined_features = torch.cat([
+            w[0] * channel_text_img_features, 
+            w[1] * channel_year_date_features
+        ], dim=1)
     
         # Apply final MLP
         output = self.final_mlp(combined_features)

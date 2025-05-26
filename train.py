@@ -10,7 +10,7 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 @hydra.main(config_path="configs", config_name="train")
 def train(cfg):
-    config = {"model": cfg.model.name, "metadata":cfg.dataset.metadata, "epochs":cfg.epochs, "batch_size":cfg.dataset.batch_size, "lr":cfg.optim.lr, "dropout":cfg.model.instance.dropout_rate, "hidden_dim":cfg.model.instance.final_mlp_hidden_dim, "validation_split":cfg.dataset.val_split, "validation_set_type":cfg.dataset.validation_set_type, "img_proportion":cfg.model.instance.img_proportion, "text_proportion":cfg.model.instance.text_proportion, 
+    config = {"model": cfg.model.name, "metadata":cfg.dataset.metadata, "epochs":cfg.epochs, "batch_size":cfg.dataset.batch_size, "lr":cfg.optim.lr, "dropout":cfg.model.instance.dropout_rate, "hidden_dim":cfg.model.instance.mlp_hidden_dim, "validation_split":cfg.dataset.val_split, "validation_set_type":cfg.dataset.validation_set_type, "img_proportion":cfg.model.instance.img_proportion, "text_proportion":cfg.model.instance.text_proportion, 
               "date_proportion":cfg.model.instance.date_proportion, "channel_proportion":cfg.model.instance.channel_proportion, "year_proportion":cfg.model.instance.year_proportion}
     logger = (
         wandb.init(project="challenge_CSC_43M04_EP", name=cfg.experiment_name,config=config)
