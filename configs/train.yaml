@@ -1,13 +1,11 @@
 defaults:
     - _self_
     - dataset: default
-    - encoder: bertdino      
-    - fusion: concat   
-    - model: mlp_regressor 
+    - model: combined_model
     - loss_fn: msle
     - optim: adamw
 
-epochs: 30
+epochs: 18
 log: True
 prefix: ""
 experiment_name: ${prefix}${model.name}_${now:%Y-%m-%d_%H-%M-%S}
@@ -25,6 +23,8 @@ datamodule:
   train_transform: ${dataset.train_transform}
   test_transform: ${dataset.val_transform}
   metadata: ${dataset.metadata}
+  val_split: ${dataset.val_split}
+  validation_set_type: ${dataset.validation_set_type}
 
 data_dir: ${root_dir}/dataset/
 root_dir:  ${hydra:runtime.cwd}

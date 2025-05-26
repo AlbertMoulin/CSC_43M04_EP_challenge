@@ -1,7 +1,6 @@
 import torch
 import pandas as pd
 from PIL import Image
-from transformers import BertTokenizer
 import string
 import numpy as np
 
@@ -35,23 +34,22 @@ class Dataset(torch.utils.data.Dataset):
                 info[["year_norm", "month_sin", "month_cos", "day_sin", "day_cos"]].values,
                 dtype=torch.float32
             )
+            self.year_features =  torch.tensor(info["year_norm"].values, dtype=torch.float32)
 
         metadata_no_date = [col for col in metadata if col != "date"]
         info["meta"] = info[metadata_no_date].agg(" [SEP] ".join, axis=1)
         if "views" in info.columns:
-            self.targets = info["views"].values
+            self.log_targets = np.log1p(info["views"].values) # Appliquer la transformation log1p pour forcer la distribution
 
         # - ids
         self.ids = info["id"].values
         # - text
         self.text = info["meta"].values
 
+        self.channel = info["channel"].values
+
         # - transforms
         self.transforms = transforms
-
-        # - token for BERT
-        self.tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
-        self.max_length = max_length
 
         # - vectorize the text (BOW)
         self.binary_bow = binary_bow
@@ -106,14 +104,6 @@ class Dataset(torch.utils.data.Dataset):
         image = self.transforms(image)
         text = self.text[idx]
 
-        # Tokenize le texte pour BERT
-        encoding = self.tokenizer(
-            text,
-            padding='max_length',
-            truncation=True,
-            max_length=self.max_length,
-            return_tensors='pt'
-        )
 
         # - vectorize the text (BOW)
         bow_vec = self.vectorize([text])[0]
@@ -122,12 +112,12 @@ class Dataset(torch.utils.data.Dataset):
             "id": self.ids[idx],
             "image": image,
             "text": text,
-            "input_ids": encoding["input_ids"].squeeze(0),        # [max_length]
-            "attention_mask": encoding["attention_mask"].squeeze(0), # [max_length]
             "vectorized_text": bow_vec,
-            "date": self.date_features[idx]
+            "date": self.date_features[idx],
+            "channel": self.channel[idx],
+            "year_norm": self.year_features[idx]
         }
         # - don't have the target for test
-        if hasattr(self, "targets"):
-            value["target"] = torch.tensor(self.targets[idx], dtype=torch.float32)
+        if hasattr(self, "log_targets"):
+            value["log_target"] = torch.tensor(self.log_targets[idx], dtype=torch.float32)
         return value

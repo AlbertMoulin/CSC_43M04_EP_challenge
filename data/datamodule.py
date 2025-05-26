@@ -14,6 +14,7 @@ class DataModule:
         num_workers,
         metadata=None,
         validation_set_type="random",
+        val_split=0.2,
     ):
         self.dataset_path = dataset_path
         self.train_transform = train_transform  
@@ -21,12 +22,25 @@ class DataModule:
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.metadata = metadata if metadata is not None else ["title"]
-        self.val_split = 0.2
+        self.val_split = val_split
         self.random_seed = 42  # Pour la reproductibilité
         self._setup_indices(validation_set_type)
         self.vocab = None
         self.setup_vocab()
 
+        self.unique_channels = self._get_unique_channels()
+
+    def _get_unique_channels(self):
+        """Get all unique channels from train_val data"""
+        train_val_info = pd.read_csv(f"{self.dataset_path}/train_val.csv")
+        unique_channels = sorted(train_val_info["channel"].unique().tolist())
+        print(f"Found {len(unique_channels)} unique channels")
+        return unique_channels
+
+    def get_unique_channels(self):
+        """Return unique channels for model initialization"""
+        return self.unique_channels
+    
     def setup_vocab(self):
         # Crée un Dataset complet train_val juste pour construire vocab
         full_train_set = Dataset(
@@ -39,7 +53,7 @@ class DataModule:
         texts = [full_train_set.text[i] for i in self.train_indices]
         self.vocab = full_train_set.build_vocab(texts)
 
-    def _setup_indices(self,validation_set_type="random"):
+    def _setup_indices(self,validation_set_type="newest"):
         """Prépare les indices pour les ensembles train et validation."""
         # Charger les données pour obtenir le nombre total d'échantillons
         df = pd.read_csv(f"{self.dataset_path}/train_val.csv")
@@ -103,6 +117,7 @@ class DataModule:
         )
 
         validation_dataset = torch.utils.data.Subset(val_set, self.val_indices)
+        print(list(set(self.val_indices)&set(self.train_indices)))
 
         return DataLoader(
             validation_dataset,
