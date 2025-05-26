@@ -38,6 +38,8 @@ class EnhancedPhase1LargeMLP(nn.Module):
                  image_model_frozen=True,
                  text_model_frozen=True,
                  final_mlp_layers=[1024, 1024, 1024],
+                 image_head = [1024, 1024, 1024],
+                 text_head = [1024, 1024, 1024],
                  max_token_length=256,  # Enhanced from Phase 1
                  dropout_rate=0.1,      # Add some regularization
                  text_model_name="google/gemma-3-1b-it",
@@ -47,8 +49,8 @@ class EnhancedPhase1LargeMLP(nn.Module):
         
         # Image branch with [1024]*3 MLP
         self.image_backbone = torch.hub.load("facebookresearch/dinov2", "dinov2_vitb14_reg")
-        self.image_backbone.head = nn.Identity()
         image_dim = self.image_backbone.norm.normalized_shape[0]  # 768
+        self.image_backbone.head = MLP(input_dim=image_dim, output_dim=image_dim, hidden_dim=image_head, dropout_rate=dropout_rate)
         
         if image_model_frozen:
             for param in self.image_backbone.parameters():
@@ -59,7 +61,9 @@ class EnhancedPhase1LargeMLP(nn.Module):
         self.text_backbone = AutoModelForCausalLM.from_pretrained(text_model_name,torch_dtype=torch.float16)
         text_dim = self.text_backbone.config.hidden_size # 1152
         self.max_token_length = max_token_length
-        
+        self.text_head_mlp = MLP(input_dim=text_dim, output_dim=text_dim, hidden_dim=text_head, dropout_rate=dropout_rate)
+
+
         if text_model_frozen:
             for param in self.text_backbone.parameters():
                 param.requires_grad = False
@@ -100,6 +104,9 @@ class EnhancedPhase1LargeMLP(nn.Module):
         text_outputs = self.text_backbone(input_ids=input_ids, attention_mask=attention_mask, output_hidden_states=True)
         last_hidden_state = text_outputs.hidden_states[-1]  # [CLS] token
         last_token_hidden = last_hidden_state[:, -1, :]
+        # pass through mlp and convert to float32
+        last_token_hidden = last_token_hidden.to(dtype=torch.float32)
+
 
         # Embedding the year date
         if "date" in batch:
