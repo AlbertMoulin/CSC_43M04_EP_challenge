@@ -130,21 +130,24 @@ class MultimodalCombined(nn.Module):
             self.year_proj = nn.Identity()
         
         # Channel embeddings
-        self.channel_embedding_dim = (mlp_indim - self.outimg_dim - self.outtext_dim - self.outdate_dim - self.outyear_dim)//2
+        self.channel_embedding_dim = (mlp_indim - self.outimg_dim - self.outtext_dim - self.outdate_dim - self.outyear_dim)
         # We'll initialize this after seeing the data, but reserve space
         self.channel_embedding = None
         self.channel_to_idx = {}
         self._channel_initialized = False
 
-        # Dynamic weights for concatenation
-        self.branch_weights = nn.Parameter(torch.ones(2))
-
         # MLP
-        self.final_mlp = ImprovedMLPRegressor(input_dim=self.outimg_dim + self.outtext_dim + self.outdate_dim + self.outyear_dim + 2 * self.channel_embedding_dim,
+        self.final_mlp = ImprovedMLPRegressor(input_dim=mlp_indim,
             hidden_dim=mlp_hidden_dim,
             output_dim=1,  # Final output is a single value
             dropout=dropout_rate
         )
+
+        self.img_score = nn.Linear(self.outimg_dim, 1)
+        self.text_score = nn.Linear(self.outtext_dim, 1)
+        self.date_score = nn.Linear(self.outdate_dim, 1)
+        self.year_score = nn.Linear(self.outyear_dim, 1)
+        self.channel_score = nn.Linear(self.channel_embedding_dim, 1)
 
     def initialize_channel_embedding(self, unique_channels):
         """Initialize channel embedding after seeing all unique channels"""
@@ -214,29 +217,24 @@ class MultimodalCombined(nn.Module):
         # Year already preprocessed
         year_features = batch["year_norm"]
         year_features = self.year_proj(year_features.unsqueeze(1))
-        
-        
-        # Concatenate features
 
-        channel_text_img_features = torch.cat([
-            image_features, 
-            text_embedding, 
-            channel_features, 
+        # Combine all features and apply attention
+        scores = torch.cat([
+        self.img_score(image_features),
+        self.text_score(text_embedding),
+        self.channel_score(channel_features),
+        self.date_score(date_features),
+        self.year_score(year_features),
         ], dim=1)
-        channel_year_date_features = torch.cat([
-            year_features, 
-            date_features, 
-            channel_features, 
-        ], dim=1)
-
-        # Apply MLPs with dynamic weights
-
-        w = torch.softmax(self.branch_weights, dim=0) #to sum to 1
+        attn_weights = torch.softmax(scores, dim=1)
+        img_attn = attn_weights[:, 0].unsqueeze(1) * image_features
+        text_attn = attn_weights[:, 1].unsqueeze(1) * text_embedding
+        channel_attn = attn_weights[:, 2].unsqueeze(1) * channel_features
+        date_attn = attn_weights[:, 3].unsqueeze(1) * date_features
+        year_attn = attn_weights[:, 4].unsqueeze(1) * year_features
+        combined_features = torch.cat([img_attn, text_attn, channel_attn, date_attn, year_attn], dim=1)
+            
         
-        combined_features = torch.cat([
-            w[0] * channel_text_img_features, 
-            w[1] * channel_year_date_features
-        ], dim=1)
     
         # Apply final MLP
         output = self.final_mlp(combined_features)
