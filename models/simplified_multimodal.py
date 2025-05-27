@@ -28,26 +28,28 @@ class MLP(nn.Module):
         # Forward pass through the MLP
         x = self.mlp(x)
         return x
-        
 
-class EnhancedPhase1LargeMLP(nn.Module):
+
+class ViralAwareMultimodal(nn.Module):
     """
-    Phase 1 enhanced text processing + [1024]*3 MLPs that you found work well.
+    Modèle multimodal avec classification virale/normale
     """
     def __init__(self, 
                  image_model_frozen=True,
                  text_model_frozen=True,
                  final_mlp_layers=[1024, 1024, 1024],
-                 image_head = [1024, 1024, 1024],
-                 text_head = [1024, 1024, 1024],
-                 max_token_length=256,  # Enhanced from Phase 1
-                 dropout_rate=0.1,      # Add some regularization
+                 image_head=[1024, 1024, 1024],
+                 text_head=[1024, 1024, 1024],
+                 max_token_length=256,
+                 dropout_rate=0.1,
                  text_model_name="google/gemma-3-1b-it",
                  proportion_date=0.1,
-                 proportion_channel=0.1):
+                 proportion_channel=0.1,
+                 viral_threshold_percentile=90,
+                 viral_weight=0.3):
         super().__init__()
         
-        # Image branch with [1024]*3 MLP
+        # Image branch
         self.image_backbone = torch.hub.load("facebookresearch/dinov2", "dinov2_vitb14_reg")
         image_dim = self.image_backbone.norm.normalized_shape[0]  # 768
         self.image_backbone.head = MLP(input_dim=image_dim, output_dim=image_dim, hidden_dim=image_head, dropout_rate=dropout_rate)
@@ -56,71 +58,166 @@ class EnhancedPhase1LargeMLP(nn.Module):
             for param in self.image_backbone.parameters():
                 param.requires_grad = False
         
-        # Enhanced text branch from Phase 1
+        # Text branch
         self.tokenizer = AutoTokenizer.from_pretrained(text_model_name)
         self.text_backbone = AutoModelForCausalLM.from_pretrained(text_model_name,torch_dtype=torch.float16)
         text_dim = self.text_backbone.config.hidden_size # 1152
         self.max_token_length = max_token_length
         self.text_head_mlp = MLP(input_dim=text_dim, output_dim=text_dim, hidden_dim=text_head, dropout_rate=dropout_rate)
 
-
         if text_model_frozen:
             for param in self.text_backbone.parameters():
                 param.requires_grad = False
         
-        # Proportion of date in the final MLP
+        # Metadata dimensions
         self.proportion_date = proportion_date
         self.ind_date_dim = int(self.proportion_date * (image_dim + text_dim))
-        # Proportion of channel in the final MLP
         self.proportion_channel = proportion_channel
         self.ind_channel_dim = int(self.proportion_channel * (image_dim + text_dim))
 
-        # final MLP
-        self.mlp = MLP(input_dim=image_dim + text_dim + self.ind_date_dim + self.ind_channel_dim , output_dim=1, hidden_dim=final_mlp_layers, dropout_rate=dropout_rate)
+        # Classification virale
+        self.viral_threshold_percentile = viral_threshold_percentile
+        self.viral_weight = viral_weight
         
+        # Classificateur viral (détermine si la vidéo sera virale ou non)
+        combined_dim = image_dim + text_dim + self.ind_date_dim + self.ind_channel_dim
+        self.viral_classifier = nn.Sequential(
+            nn.Linear(combined_dim, 512),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(256, 1),
+            nn.Sigmoid()  # Probabilité d'être viral
+        )
+        
+        # Deux régresseurs séparés
+        self.viral_regressor = MLP(
+            input_dim=combined_dim, 
+            output_dim=1, 
+            hidden_dim=final_mlp_layers, 
+            dropout_rate=dropout_rate
+        )
+        
+        self.normal_regressor = MLP(
+            input_dim=combined_dim, 
+            output_dim=1, 
+            hidden_dim=final_mlp_layers, 
+            dropout_rate=dropout_rate
+        )
+        
+        # Buffer pour le seuil viral (mis à jour pendant l'entraînement)
+        self.register_buffer('viral_threshold', torch.tensor(1000000.0))  # Valeur initiale
+        
+    def _update_viral_threshold(self, targets):
+        """Met à jour le seuil viral basé sur les vraies valeurs"""
+        if self.training and targets is not None:
+            with torch.no_grad():
+                threshold = torch.quantile(targets, self.viral_threshold_percentile / 100.0)
+                # Mise à jour avec momentum pour la stabilité
+                self.viral_threshold = 0.9 * self.viral_threshold + 0.1 * threshold
     
-    def forward(self, batch):
+    def forward(self, batch, targets=None):
+        # Mise à jour du seuil viral si en mode entraînement
+        if targets is not None:
+            self._update_viral_threshold(targets)
+        
         # Image processing
         image_features = self.image_backbone(batch["image"])
         
-        # Enhanced text processing from Phase 1
+        # Text processing
         raw_text = list(batch["text"])
         
-        # Better tokenization
         encoded_text = self.tokenizer(
             raw_text,
             padding='max_length',
             truncation=True,
             max_length=self.max_token_length,
             return_tensors='pt',
-            add_special_tokens=True  # Ensure [CLS] and [SEP] tokens
+            add_special_tokens=True
         )
         
         device = batch["image"].device
         input_ids = encoded_text['input_ids'].to(device)
         attention_mask = encoded_text['attention_mask'].to(device)
         
-        # Text features
         text_outputs = self.text_backbone(input_ids=input_ids, attention_mask=attention_mask, output_hidden_states=True)
-        last_hidden_state = text_outputs.hidden_states[-1]  # [CLS] token
+        last_hidden_state = text_outputs.hidden_states[-1]
         last_token_hidden = last_hidden_state[:, -1, :]
-        # pass through mlp and convert to float32
         last_token_hidden = last_token_hidden.to(dtype=torch.float32)
 
-
-        # Embedding the year date
+        # Metadata processing
         if "date" in batch:
             date = batch["date"].unsqueeze(1).to(device)
-            # Ensure date_embedding is float32 and on the correct device
             date_embedding = date.repeat(1, self.ind_date_dim).to(dtype=image_features.dtype)
 
         if "channel" in batch:
             channel = batch["channel"].unsqueeze(1).to(device)
-            # Ensure channel_embedding is float32 and on the correct device
             channel_embedding = channel.repeat(1, self.ind_channel_dim).to(dtype=image_features.dtype)
 
-        # Concatenate image and text and date features
+        # Combine features
         combined_features = torch.cat((image_features, last_token_hidden, date_embedding, channel_embedding), dim=1)
-        # MLP processing
-        mlp_output = self.mlp(combined_features)
-        return mlp_output
+        
+        # Classification virale (probabilité d'être viral)
+        viral_prob = self.viral_classifier(combined_features)
+        
+        # Prédictions des deux régresseurs
+        viral_pred = self.viral_regressor(combined_features)
+        normal_pred = self.normal_regressor(combined_features)
+        
+        # Combinaison pondérée des prédictions
+        # viral_prob proche de 1 = vidéo virale, proche de 0 = vidéo normale
+        final_pred = viral_prob * viral_pred + (1 - viral_prob) * normal_pred
+        
+        # Retourner les prédictions et informations supplémentaires
+        result = {
+            'prediction': final_pred.squeeze(),
+            'viral_probability': viral_prob.squeeze(),
+            'viral_prediction': viral_pred.squeeze(),
+            'normal_prediction': normal_pred.squeeze(),
+            'viral_threshold': self.viral_threshold.item()
+        }
+        
+        return result
+    
+    def get_viral_stats(self, batch, targets=None):
+        """Retourne des statistiques sur la classification viral/normal"""
+        with torch.no_grad():
+            if targets is not None:
+                viral_mask = targets > self.viral_threshold
+                stats = {
+                    'viral_threshold': self.viral_threshold.item(),
+                    'viral_count': viral_mask.sum().item(),
+                    'normal_count': (~viral_mask).sum().item(),
+                    'viral_percentage': (viral_mask.sum().float() / len(targets) * 100).item()
+                }
+            else:
+                # Utiliser les prédictions de probabilité virale
+                result = self.forward(batch)
+                viral_probs = result['viral_probability']
+                predicted_viral = viral_probs > 0.5
+                stats = {
+                    'viral_threshold': self.viral_threshold.item(),
+                    'predicted_viral_count': predicted_viral.sum().item(),
+                    'predicted_normal_count': (~predicted_viral).sum().item(),
+                    'avg_viral_probability': viral_probs.mean().item()
+                }
+        return stats
+
+
+# Classe de compatibilité pour remplacer facilement l'ancien modèle
+class EnhancedPhase1LargeMLP(ViralAwareMultimodal):
+    """
+    Wrapper de compatibilité - utilise le nouveau modèle viral-aware
+    mais retourne seulement la prédiction pour compatibilité
+    """
+    def forward(self, batch, targets=None):
+        # Si appelé avec targets (mode entraînement), passer les targets
+        if "target" in batch:
+            result = super().forward(batch, batch["target"])
+        else:
+            result = super().forward(batch, targets)
+        
+        # Retourner seulement la prédiction pour compatibilité avec l'ancien code
+        return result['prediction']
