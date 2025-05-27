@@ -71,7 +71,7 @@ class ViralAwareMultimodal(nn.Module):
         
         # Metadata dimensions
         self.proportion_date = proportion_date
-        self.ind_date_dim = int(self.proportion_date * (image_dim + text_dim))
+        self.ind_date_dim = max(32, int(self.proportion_date * (image_dim + text_dim)))  # Minimum de 32 dimensions
         self.proportion_channel = proportion_channel
         self.ind_channel_dim = int(self.proportion_channel * (image_dim + text_dim))
 
@@ -109,6 +109,63 @@ class ViralAwareMultimodal(nn.Module):
         
         # Buffer pour le seuil viral (mis à jour pendant l'entraînement)
         self.register_buffer('viral_threshold', torch.tensor(1000000.0))  # Valeur initiale
+
+        # Enhanced date encoding layers
+        self._setup_date_embedding()
+        
+    def _setup_date_embedding(self):
+        """Configure l'embedding avancé pour les dates"""
+        # Embedding sinusoidal pour capturer les patterns cycliques
+        self.date_embedding_dim = 16  # Dimensions pour l'embedding sinusoidal
+        
+        # MLP pour transformer l'embedding de date
+        self.date_mlp = nn.Sequential(
+            nn.Linear(self.date_embedding_dim + 1, 64),  # +1 pour la date normalisée
+            nn.ReLU(),
+            nn.Dropout(0.1),
+            nn.Linear(64, self.ind_date_dim),
+            nn.Tanh()  # Normalise la sortie
+        )
+        
+    def _create_date_embedding(self, dates, device, dtype):
+        """
+        Crée un embedding riche pour les dates qui capture :
+        - Patterns saisonniers (jour de l'année)
+        - Patterns hebdomadaires (jour de la semaine)
+        - Tendances temporelles
+        """
+        batch_size = len(dates)
+        # S'assurer que tout est en float32 dès le début
+        dates = dates.to(device=device, dtype=torch.float32)
+        
+        # 1. Date normalisée (déjà fournie, représente le jour dans l'année [0,1])
+        normalized_date = dates.unsqueeze(1)  # [batch_size, 1]
+        
+        # 2. Embeddings sinusoidaux pour capturer les cycles
+        # Créer différentes fréquences pour capturer différents patterns temporels
+        freqs = torch.linspace(1, self.date_embedding_dim // 2, self.date_embedding_dim // 2, 
+                              device=device, dtype=torch.float32)
+        
+        # Patterns annuels (basés sur la date normalisée [0,1])
+        angles = 2 * torch.pi * dates.unsqueeze(1) * freqs.unsqueeze(0)  # [batch_size, date_embedding_dim//2]
+        
+        # Fonctions sin et cos pour capturer les cycles
+        sin_embedding = torch.sin(angles)  # [batch_size, date_embedding_dim//2]
+        cos_embedding = torch.cos(angles)  # [batch_size, date_embedding_dim//2]
+        
+        # Combiner sin et cos
+        sinusoidal_embedding = torch.cat([sin_embedding, cos_embedding], dim=1)  # [batch_size, date_embedding_dim]
+        
+        # 3. Combiner date normalisée et embedding sinusoidal
+        full_date_features = torch.cat([normalized_date, sinusoidal_embedding], dim=1)  # [batch_size, date_embedding_dim + 1]
+        
+        # 4. Passer par le MLP pour obtenir la dimension finale
+        date_embedding = self.date_mlp(full_date_features)  # [batch_size, ind_date_dim]
+        
+        # Convertir au bon dtype final
+        return date_embedding.to(dtype=dtype)
+
+        
         
     def _update_viral_threshold(self, targets):
         """Met à jour le seuil viral basé sur les vraies valeurs"""
@@ -147,10 +204,12 @@ class ViralAwareMultimodal(nn.Module):
         last_token_hidden = last_hidden_state[:, -1, :]
         last_token_hidden = last_token_hidden.to(dtype=torch.float32)
 
-        # Metadata processing
+        # Enhanced date embedding
         if "date" in batch:
-            date = batch["date"].unsqueeze(1).to(device)
-            date_embedding = date.repeat(1, self.ind_date_dim).to(dtype=image_features.dtype)
+            date_embedding = self._create_date_embedding(batch["date"], device, image_features.dtype)
+        else:
+            date_embedding = torch.zeros(batch["image"].size(0), self.ind_date_dim, 
+                                       device=device, dtype=image_features.dtype)
 
         if "channel" in batch:
             channel = batch["channel"].unsqueeze(1).to(device)

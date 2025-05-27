@@ -6,7 +6,7 @@ instance:
   image_head : [1024, 1024, 1024]
   text_head : [1024, 1024, 1024]
   max_token_length: 256
-  dropout_rate: 0.2
+  dropout_rate: 0.3
   text_model_name: google/gemma-3-1b-it
   proportion_date : 0.1
   proportion_channel : 0.1
