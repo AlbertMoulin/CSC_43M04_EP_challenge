@@ -4,30 +4,40 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 
 class MLP(nn.Module):
     """
-    Simple MLP
+    MLP amélioré avec LayerNorm bien placé
     """
-    def __init__(self, input_dim, output_dim, hidden_dim : list = [1024, 1024,1024],dropout_rate=0.1):
+    def __init__(self, input_dim, output_dim, hidden_dim=[1024, 1024, 1024], 
+                 dropout_rate=0.1, use_layer_norm=False):
         super().__init__()
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.hidden_dim = hidden_dim
-        self.hidden_layers = []
-        for i in range(len(hidden_dim)):
-            if i == 0:
-                self.hidden_layers.append(nn.Linear(input_dim, hidden_dim[i]))
-            else:
-                self.hidden_layers.append(nn.Linear(hidden_dim[i-1], hidden_dim[i]))
-            self.hidden_layers.append(nn.ReLU())
-            self.hidden_layers.append(nn.Dropout(dropout_rate))
-        self.hidden_layers.append(nn.Linear(hidden_dim[-1], output_dim))
-        self.hidden_layers = nn.ModuleList(self.hidden_layers)
-        # Initialize the MLP with the specified hidden layers
-        self.mlp = nn.Sequential(*self.hidden_layers)
+        self.use_layer_norm = use_layer_norm
+        
+        layers = []
+        
+        # Première couche
+        layers.append(nn.Linear(input_dim, hidden_dim[0]))
+        if use_layer_norm:
+            layers.append(nn.LayerNorm(hidden_dim[0]))  # LayerNorm APRÈS Linear
+        layers.append(nn.ReLU())
+        layers.append(nn.Dropout(dropout_rate))
+        
+        # Couches cachées
+        for i in range(1, len(hidden_dim)):
+            layers.append(nn.Linear(hidden_dim[i-1], hidden_dim[i]))
+            if use_layer_norm:
+                layers.append(nn.LayerNorm(hidden_dim[i]))  # LayerNorm sur chaque couche cachée
+            layers.append(nn.ReLU())
+            layers.append(nn.Dropout(dropout_rate))
+        
+        # Couche finale (SANS LayerNorm pour la sortie)
+        layers.append(nn.Linear(hidden_dim[-1], output_dim))
+        
+        self.mlp = nn.Sequential(*layers)
     
     def forward(self, x):
-        # Forward pass through the MLP
-        x = self.mlp(x)
-        return x
+        return self.mlp(x)
 
 
 class ViralAwareMultimodal(nn.Module):
