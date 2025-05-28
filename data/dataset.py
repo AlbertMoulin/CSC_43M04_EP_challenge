@@ -40,6 +40,7 @@ class Dataset(torch.utils.data.Dataset):
         info["meta"] = info[metadata_no_date].agg(" [SEP] ".join, axis=1)
         if "views" in info.columns:
             self.log_targets = np.log1p(info["views"].values) # Appliquer la transformation log1p pour forcer la distribution
+            self.class_targets = np.floor(self.log_targets).astype(int)
 
         # - ids
         self.ids = info["id"].values
@@ -47,6 +48,7 @@ class Dataset(torch.utils.data.Dataset):
         self.text = info["meta"].values
 
         self.channel = info["channel"].values
+        self.is_train_major_channel = info["channel"].isin(["UC-1rx8j9Ggp8mp4uD0ZdEIA"]).values
 
         # - transforms
         self.transforms = transforms
@@ -115,9 +117,11 @@ class Dataset(torch.utils.data.Dataset):
             "vectorized_text": bow_vec,
             "date": self.date_features[idx],
             "channel": self.channel[idx],
-            "year_norm": self.year_features[idx]
+            "year_norm": self.year_features[idx],
+            "is_train_major_channel": self.is_train_major_channel[idx],
         }
         # - don't have the target for test
         if hasattr(self, "log_targets"):
             value["log_target"] = torch.tensor(self.log_targets[idx], dtype=torch.float32)
+            value["class_target"] = torch.tensor(self.class_targets[idx], dtype=torch.long)
         return value

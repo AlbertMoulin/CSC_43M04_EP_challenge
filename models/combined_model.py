@@ -19,7 +19,7 @@ class ResidualBlock(nn.Module):
     def __init__(self, dim, dropout=0.1):
         super().__init__()
         self.linear1 = nn.Linear(dim, dim)
-        self.act = nn.ReLU()
+        self.act = nn.LeakyReLU()
         self.dropout = nn.Dropout(dropout)
         self.linear2 = nn.Linear(dim, dim)
 
@@ -40,8 +40,11 @@ class ImprovedMLPRegressor(nn.Module):
 
         for dim in hidden_dim[1:len(hidden_dim)]:
             self.blocks.append(nn.Linear(current_dim, dim))  # Projection linéaire
-            self.blocks.append(nn.ReLU())                     # Activation
-            #self.blocks.append(ResidualBlock(dim, dropout=dropout))  # Bloc résiduel avec dropout
+            self.blocks.append(nn.LayerNorm(dim))               # Normalisation
+            self.blocks.append(nn.BatchNorm1d(dim))            # Normalisation par lot
+            self.blocks.append(nn.LeakyReLU())                     # Activation
+            self.blocks.append(ResidualBlock(dim, dropout=dropout))  # Bloc résiduel avec dropout
+            self.blocks.append(nn.Dropout(dropout))               # Dropout
             current_dim = dim
 
         self.output_layer = nn.Linear(current_dim, output_dim)
@@ -51,7 +54,7 @@ class ImprovedMLPRegressor(nn.Module):
         x = self.feature_gate(x)  # Appliquer le gate sur les features
         for block in self.blocks:
             x = block(x)
-        return self.output_layer(x).squeeze(1)
+        return self.output_layer(x)
 
 
 class MultimodalCombined(nn.Module):
@@ -64,17 +67,24 @@ class MultimodalCombined(nn.Module):
                 text_model_frozen=True,
                 mlp_indim = 1024,
                 mlp_hidden_dim = [512, 256, 128],
-                text_proportion=0.2,
-                channel_proportion=0.1,
-                date_proportion=0.1,
-                img_proportion=0.5,
-                year_proportion=0.1,
+                text_proportion=20,
+                channel_proportion=10,
+                date_proportion=10,
+                img_proportion=50,
+                year_proportion=10,
                 max_token_length=256,
-                dropout_rate=0.1):
+                dropout_rate=0.1,
+                mode="regression",  # "regression" ou "classification"
+                num_classes=20):   
         super().__init__()
         
-        assert int(text_proportion + channel_proportion + date_proportion + img_proportion + year_proportion) == 1, f"Proportions must sum to 1. Sum = {text_proportion + channel_proportion + date_proportion + img_proportion + year_proportion}"
+        assert int(text_proportion + channel_proportion + date_proportion + img_proportion + year_proportion) == 100, f"Proportions must sum to 100. Sum = {text_proportion + channel_proportion + date_proportion + img_proportion + year_proportion}"
        
+        text_proportion = text_proportion / 100
+        channel_proportion = channel_proportion / 100
+        date_proportion = date_proportion / 100
+        img_proportion = img_proportion / 100
+        year_proportion = year_proportion / 100
         # Image branch
         self.outimg_dim = int(mlp_indim*img_proportion)
         self.image_backbone = torch.hub.load("facebookresearch/dinov2", "dinov2_vitb14_reg")
@@ -86,9 +96,13 @@ class MultimodalCombined(nn.Module):
         else:
             self.img_proj = nn.Identity()
         
-        if image_model_frozen:
-            for param in self.image_backbone.parameters():
-                param.requires_grad = False
+        
+        for param in self.image_backbone.parameters():
+            param.requires_grad = False
+
+        if not image_model_frozen:
+            for param in self.image_backbone.blocks[-2:].parameters():
+                param.requires_grad = True
         
         # Text branch
         self.outtext_dim = int(mlp_indim*text_proportion)
@@ -111,9 +125,13 @@ class MultimodalCombined(nn.Module):
         else:
             self.text_proj = nn.Identity()
 
-        if text_model_frozen:
-            for param in self.text_backbone.parameters():
-                param.requires_grad = False
+        for param in self.text_backbone.parameters():
+            param.requires_grad = False
+
+        if not text_model_frozen:
+            if hasattr(self.text_backbone, "encoder"):
+                for param in self.text_backbone.encoder.layer[-2].parameters():
+                    param.requires_grad = True
 
         # Date (already preprocessed)
         if mlp_indim is not None:
@@ -136,18 +154,33 @@ class MultimodalCombined(nn.Module):
         self.channel_to_idx = {}
         self._channel_initialized = False
 
+        # Growth of the channel
+        # self.growth_head = nn.Sequential(
+        #     nn.Linear(self.channel_embedding_dim + self.outyear_dim, 32),
+        #     nn.ReLU(),
+        #     nn.Linear(32, 1)
+        # )
+
+        # major channel in training set
+        self.major_channel_lin = nn.Linear(1, 16)  # 1 feature for major channel
+
         # MLP
-        self.final_mlp = ImprovedMLPRegressor(input_dim=mlp_indim,
-            hidden_dim=mlp_hidden_dim,
-            output_dim=1,  # Final output is a single value
+        self.shared_mlp = ImprovedMLPRegressor(
+            input_dim=mlp_indim+16,  # +16 pour major channel
+            hidden_dim=mlp_hidden_dim[:-1],  # On garde toutes les couches sauf la dernière
+            output_dim=mlp_hidden_dim[-1],   # La sortie est la dernière dimension cachée
             dropout=dropout_rate
         )
 
-        self.img_score = nn.Linear(self.outimg_dim, 1)
-        self.text_score = nn.Linear(self.outtext_dim, 1)
-        self.date_score = nn.Linear(self.outdate_dim, 1)
-        self.year_score = nn.Linear(self.outyear_dim, 1)
-        self.channel_score = nn.Linear(self.channel_embedding_dim, 1)
+        # Tête de classification (pour mode="classification")
+        self.classification_head = nn.Linear(mlp_hidden_dim[-1], num_classes)
+
+        # Tête de régression (pour mode="regression")
+        self.regression_head = nn.Linear(mlp_hidden_dim[-1], 1)
+
+        # Mode actuel
+        self.mode = mode
+
 
     def initialize_channel_embedding(self, unique_channels):
         """Initialize channel embedding after seeing all unique channels"""
@@ -218,24 +251,61 @@ class MultimodalCombined(nn.Module):
         year_features = batch["year_norm"]
         year_features = self.year_proj(year_features.unsqueeze(1))
 
-        # Combine all features and apply attention
-        scores = torch.cat([
-        self.img_score(image_features),
-        self.text_score(text_embedding),
-        self.channel_score(channel_features),
-        self.date_score(date_features),
-        self.year_score(year_features),
-        ], dim=1)
-        attn_weights = torch.softmax(scores, dim=1)
-        img_attn = attn_weights[:, 0].unsqueeze(1) * image_features
-        text_attn = attn_weights[:, 1].unsqueeze(1) * text_embedding
-        channel_attn = attn_weights[:, 2].unsqueeze(1) * channel_features
-        date_attn = attn_weights[:, 3].unsqueeze(1) * date_features
-        year_attn = attn_weights[:, 4].unsqueeze(1) * year_features
-        combined_features = torch.cat([img_attn, text_attn, channel_attn, date_attn, year_attn], dim=1)
-            
+        # is the channel major in the training set?
+        is_train_major_channel = batch["is_train_major_channel"].unsqueeze(1).float()
+        is_train_major_channel = self.major_channel_lin(is_train_major_channel)
         
+
+        # Combine all features 
+        #growth_input = torch.cat([channel_features, year_features], dim=1)
+        #growth_effect = self.growth_head(growth_input)
+
+        combined_features = torch.cat([
+            image_features,
+            text_embedding,
+            channel_features,
+            date_features,
+            year_features,
+            is_train_major_channel], dim=1)
+
+        # output = self.final_mlp(combined_features)
+        # output = output + growth_effect  # le modèle apprend la croissance spécifique à la chaîne et à l'année
+        # return output.squeeze(1)
     
-        # Apply final MLP
-        output = self.final_mlp(combined_features)
-        return output
+        shared_features = self.shared_mlp(combined_features)
+
+        # Utilise la tête appropriée selon le mode
+        if self.mode == "classification":
+            return self.classification_head(shared_features)
+        else:  # mode="regression"
+            return self.regression_head(shared_features)
+        
+
+    def set_mode(self, mode, freeze_backbone=True):
+        """Change le mode du modèle entre 'classification' et 'regression'"""
+        assert mode in ["classification", "regression"], "Mode must be 'classification' or 'regression'"
+        self.mode = mode
+        
+        # Optionnel: gèle le backbone si demandé
+        if freeze_backbone:
+            # Gèle tout sauf la tête appropriée
+            for param in self.parameters():
+                param.requires_grad = False
+                
+            if mode == "classification":
+                for param in self.classification_head.parameters():
+                    param.requires_grad = True
+            else:
+                for param in self.regression_head.parameters():
+                    param.requires_grad = True
+
+    def load_backbone(self, state_dict):
+        """Charge uniquement les poids du backbone (tout sauf les têtes)"""
+        # Filtre les clés pour exclure les têtes
+        backbone_dict = {k: v for k, v in state_dict.items() 
+                        if not k.startswith('classification_head') 
+                        and not k.startswith('regression_head')}
+        
+        # Charge les poids filtrés
+        missing_keys, unexpected_keys = self.load_state_dict(backbone_dict, strict=False)
+        print(f"Loaded backbone. Missing keys: {missing_keys}, Unexpected keys: {unexpected_keys}")

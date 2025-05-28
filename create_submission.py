@@ -53,6 +53,7 @@ def create_submission(cfg):
         batch["date"] = batch["date"].to(device)
         batch["vectorized_text"] = batch["vectorized_text"].to(device)
         batch["year_norm"] = batch["year_norm"].to(device)
+        batch["is_train_major_channel"]= batch["is_train_major_channel"].to(device)
 
         with torch.no_grad():
             preds_log = model(batch)

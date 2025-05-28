@@ -5,7 +5,7 @@ defaults:
     - loss_fn: msle
     - optim: adamw
 
-epochs: 18
+epochs: 8
 log: True
 prefix: ""
 experiment_name: ${prefix}${model.name}_${now:%Y-%m-%d_%H-%M-%S}

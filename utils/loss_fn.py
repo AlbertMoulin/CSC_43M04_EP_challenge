@@ -39,7 +39,7 @@ class MSLELoss(nn.Module):
         return loss
 
 class AsymmetricMSELoss(nn.Module):
-    def __init__(self, alpha=2.0):
+    def __init__(self, alpha=3.0):
         super().__init__()
         self.alpha = alpha
 
