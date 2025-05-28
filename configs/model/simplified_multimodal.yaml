@@ -1,13 +1,13 @@
 instance:
   _target_: models.simplified_multimodal.EnhancedPhase1LargeMLP
   image_model_frozen: False
-  text_model_frozen: True
+  text_model_frozen: False
   final_mlp_layers: [1024, 512, 256, 128]
-  image_head : [768 , 512]
-  text_head : [1152, 512] 
+  image_head : [768]
+  text_head : [1152] 
   max_token_length: 256
   dropout_rate: 0.3
-  text_model_name: google/gemma-3-1b-it
+  text_model_name: google/gemma-3-1b-it 
   proportion_date : 0.1
   proportion_channel : 0.1
 

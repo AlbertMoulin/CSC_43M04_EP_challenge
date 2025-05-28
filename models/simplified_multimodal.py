@@ -55,7 +55,7 @@ class ViralAwareMultimodal(nn.Module):
                  text_model_name="google/gemma-3-1b-it",
                  proportion_date=0.1,
                  proportion_channel=0.1,
-                 viral_threshold_percentile=90,
+                 viral_threshold_percentile=95,
                  viral_weight=0.3):
         super().__init__()
         
@@ -70,7 +70,7 @@ class ViralAwareMultimodal(nn.Module):
         
         # Text branch
         self.tokenizer = AutoTokenizer.from_pretrained(text_model_name)
-        self.text_backbone = AutoModelForCausalLM.from_pretrained(text_model_name,torch_dtype=torch.float16)
+        self.text_backbone = AutoModelForCausalLM.from_pretrained(text_model_name)
         text_dim = self.text_backbone.config.hidden_size # 1152
         self.max_token_length = max_token_length
         self.text_head_mlp = MLP(input_dim=text_dim, output_dim=text_dim, hidden_dim=text_head, dropout_rate=dropout_rate)
