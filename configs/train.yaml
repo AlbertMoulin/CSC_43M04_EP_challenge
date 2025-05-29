@@ -1,14 +1,19 @@
 defaults:
     - _self_
-    - dataset: default
-    - optim: adamw
-    - model: simplified_multimodal
-    - loss_fn: msle
+    - dataset: enhanced  # Nouveau dataset
+    - optim: adamw_enhanced
+    - model: optimized_multimodal
+    - loss_fn: mse_log
 
-epochs: 20
-log: True
-prefix: ""
+epochs: 15  # Moins d'epochs avec early stopping
+log: true
+prefix: "enhanced_"
 experiment_name: ${prefix}${model.name}_${now:%Y-%m-%d_%H-%M-%S}
+
+# Early stopping configuration
+early_stopping:
+  patience: 5
+  min_delta: 0.001
 
 hydra:
   output_subdir: null
@@ -16,7 +21,7 @@ hydra:
     dir: .
 
 datamodule:
-  _target_: data.datamodule.DataModule
+  _target_: data.enhanced_datamodule.EnhancedDataModule  # Nouveau datamodule
   dataset_path: ${data_dir}
   train_transform: ${dataset.train_transform}
   test_transform: ${dataset.val_transform}
@@ -25,5 +30,5 @@ datamodule:
   metadata: ${dataset.metadata}
 
 data_dir: ${root_dir}/dataset/
-root_dir:  ${hydra:runtime.cwd}
+root_dir: ${hydra:runtime.cwd}
 checkpoint_path: ${root_dir}/checkpoints/${experiment_name}.pt

@@ -1,6 +1,15 @@
-import torch
+# data/enhanced_datamodule.py
+from torch.utils.data import DataLoader, Subset
 import pandas as pd
 import numpy as np
+
+# Importer le nouveau dataset
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+# Créer le dataset amélioré ici pour éviter les imports
+import torch
 from PIL import Image
 import re
 from datetime import datetime
@@ -22,10 +31,10 @@ class EnhancedDataset(torch.utils.data.Dataset):
         
         # === CHANNEL PERFORMANCE STATS ===
         if split != "test":  # Seulement pour train/val
-            self._add_channel_stats(info, dataset_path)
+            info = self._add_channel_stats(info, dataset_path)
         else:
             # Pour le test, charger les stats depuis le train
-            self._load_channel_stats_for_test(info, dataset_path)
+            info = self._load_channel_stats_for_test(info, dataset_path)
             
         # === FEATURES TEMPORELLES AMÉLIORÉES ===
         self._engineer_temporal_features(info)
@@ -43,18 +52,30 @@ class EnhancedDataset(torch.utils.data.Dataset):
         self.channels = info["channel"].values
         
         # Features numériques critiques
-        self.numeric_features = info[[
+        feature_columns = [
             'title_length', 'desc_length', 'title_word_count', 'desc_word_count',
             'video_age_days', 'is_short', 'is_cgi_animation', 'is_film',
             'has_caps_title', 'has_numbers_in_title', 'year_normalized',
             'month', 'day_of_week', 'is_weekend',
             'channel_avg_views', 'channel_consistency', 'channel_total_videos'
-        ]].values.astype(np.float32)
+        ]
+        
+        # Vérifier que toutes les colonnes existent
+        missing_cols = [col for col in feature_columns if col not in info.columns]
+        if missing_cols:
+            print(f"Warning: Missing columns {missing_cols}, filling with zeros")
+            for col in missing_cols:
+                info[col] = 0
+                
+        self.numeric_features = info[feature_columns].values.astype(np.float32)
         
         # Channel encoding
         self.channel_codes = pd.Categorical(self.channels).codes
         
         self.transforms = transforms
+        
+        print(f"Dataset {split} loaded: {len(self)} samples")
+        print(f"Features shape: {self.numeric_features.shape}")
         
     def _engineer_critical_features(self, info):
         """Ajoute toutes les features critiques identifiées dans l'analyse"""
@@ -95,8 +116,6 @@ class EnhancedDataset(torch.utils.data.Dataset):
         print(f"  - Shorts: {info['is_short'].sum()} ({info['is_short'].mean()*100:.1f}%)")
         print(f"  - CGI: {info['is_cgi_animation'].sum()} ({info['is_cgi_animation'].mean()*100:.1f}%)")
         print(f"  - Films: {info['is_film'].sum()} ({info['is_film'].mean()*100:.1f}%)")
-        print(f"  - Avg title length: {info['title_length'].mean():.1f}")
-        print(f"  - Avg desc length: {info['desc_length'].mean():.1f}")
         
     def _add_channel_stats(self, info, dataset_path):
         """Ajoute les statistiques de performance par chaîne (CRITIQUE)"""
@@ -127,16 +146,12 @@ class EnhancedDataset(torch.utils.data.Dataset):
         # Merger avec les données
         info = info.merge(channel_stats, on='channel', how='left')
         
-        print(f"Channel stats added:")
-        print(f"  - Unique channels: {len(channel_stats)}")
-        print(f"  - Avg views per channel: {channel_stats['channel_avg_views'].mean():,.0f}")
-        print(f"  - Best performing channel: {channel_stats['channel_avg_views'].max():,.0f} views")
+        print(f"Channel stats added: {len(channel_stats)} unique channels")
         
         # Remplir les valeurs manquantes
-        info[['channel_avg_views', 'channel_median_views', 'channel_std_views', 
-              'channel_total_videos', 'channel_consistency']] = info[[
-            'channel_avg_views', 'channel_median_views', 'channel_std_views', 
-            'channel_total_videos', 'channel_consistency']].fillna(0)
+        stats_cols = ['channel_avg_views', 'channel_median_views', 'channel_std_views', 
+                      'channel_total_videos', 'channel_consistency']
+        info[stats_cols] = info[stats_cols].fillna(0)
             
         return info
         
@@ -147,10 +162,9 @@ class EnhancedDataset(torch.utils.data.Dataset):
             info = info.merge(channel_stats, on='channel', how='left')
             
             # Remplir les valeurs manquantes pour les nouvelles chaînes
-            info[['channel_avg_views', 'channel_median_views', 'channel_std_views', 
-                  'channel_total_videos', 'channel_consistency']] = info[[
-                'channel_avg_views', 'channel_median_views', 'channel_std_views', 
-                'channel_total_videos', 'channel_consistency']].fillna(0)
+            stats_cols = ['channel_avg_views', 'channel_median_views', 'channel_std_views', 
+                          'channel_total_videos', 'channel_consistency']
+            info[stats_cols] = info[stats_cols].fillna(0)
                 
             print(f"Channel stats loaded for test set")
         except FileNotFoundError:
@@ -168,15 +182,16 @@ class EnhancedDataset(torch.utils.data.Dataset):
         info['datetime'] = pd.to_datetime(info['date'])
         
         # Âge des vidéos (CRITIQUE - feature #3)
-        if hasattr(info['datetime'].dt, 'tz') and info['datetime'].dt.tz is not None:
+        # Gestion timezone-safe
+        if info['datetime'].dt.tz is not None:
+            # Si les données ont une timezone, l'utiliser
             reference_date = pd.to_datetime('2024-01-01', utc=True)
-            try:
+            if info['datetime'].dt.tz != reference_date.tz:
                 reference_date = reference_date.tz_convert(info['datetime'].dt.tz)
-            except:
-                reference_date = pd.to_datetime('2024-01-01').tz_localize(info['datetime'].dt.tz)
         else:
+            # Si pas de timezone, utiliser date naive
             reference_date = pd.to_datetime('2024-01-01')
-
+            
         info['video_age_days'] = (reference_date - info['datetime']).dt.days
         
         # Features temporelles
@@ -191,10 +206,6 @@ class EnhancedDataset(torch.utils.data.Dataset):
             info['year_normalized'] = (info['year'] - year_min) / (year_max - year_min)
         else:
             info['year_normalized'] = 0.5
-            
-        print(f"Temporal features:")
-        print(f"  - Date range: {info['datetime'].min()} to {info['datetime'].max()}")
-        print(f"  - Avg video age: {info['video_age_days'].mean():.0f} days")
         
     def __len__(self):
         return len(self.ids)
@@ -217,32 +228,124 @@ class EnhancedDataset(torch.utils.data.Dataset):
         
         # Ajouter target si disponible
         if hasattr(self, "targets"):
-            batch["target"] = torch.tensor(self.targets[idx], dtype=torch.float32)
+            batch["target"] = torch.tensor(np.log1p(self.targets[idx]), dtype=torch.float32)
             
         return batch
 
 
-# === EXEMPLE D'UTILISATION ===
-if __name__ == "__main__":
-    # Test du dataset
-    import torchvision.transforms as transforms
+class EnhancedDataModule:
+    def __init__(
+        self,
+        dataset_path,
+        train_transform,
+        test_transform,
+        batch_size,
+        num_workers,
+        metadata=["title", "description"],  # Par défaut title + description
+        val_split=0.25,
+    ):
+        self.dataset_path = dataset_path
+        self.train_transform = train_transform  
+        self.test_transform = test_transform
+        self.batch_size = batch_size
+        self.num_workers = num_workers
+        self.metadata = metadata
+        self.val_split = val_split
+        
+        print(f"Enhanced DataModule initialized:")
+        print(f"  - Metadata: {metadata}")
+        print(f"  - Batch size: {batch_size}")
+        print(f"  - Val split: {val_split}")
+
+    def _get_temporal_split_indices(self):
+        """Get train/val indices based on temporal split"""
+        train_val_info = pd.read_csv(f"{self.dataset_path}/train_val.csv")
+        
+        # Convert date strings to datetime objects for sorting
+        train_val_info['datetime'] = pd.to_datetime(train_val_info['date'])
+        
+        # Sort by date but keep original indices
+        train_val_info_sorted = train_val_info.sort_values('datetime')
+        
+        # Calculate split point (most recent for validation)
+        total_size = len(train_val_info_sorted)
+        val_size = int(total_size * self.val_split)
+        train_size = total_size - val_size
+        
+        # Get the ORIGINAL indices (before sorting)
+        train_indices = train_val_info_sorted.iloc[:train_size].index.tolist()
+        val_indices = train_val_info_sorted.iloc[train_size:].index.tolist()
+        
+        # Print info
+        train_date_range = (
+            train_val_info_sorted.iloc[0]['datetime'].strftime('%Y-%m-%d'),
+            train_val_info_sorted.iloc[train_size-1]['datetime'].strftime('%Y-%m-%d')
+        )
+        val_date_range = (
+            train_val_info_sorted.iloc[train_size]['datetime'].strftime('%Y-%m-%d'),
+            train_val_info_sorted.iloc[-1]['datetime'].strftime('%Y-%m-%d')
+        )
+        
+        print(f"Temporal split:")
+        print(f"  Train: {len(train_indices)} samples from {train_date_range[0]} to {train_date_range[1]}")
+        print(f"  Val: {len(val_indices)} samples from {val_date_range[0]} to {val_date_range[1]}")
+        
+        return train_indices, val_indices
+
+    def train_dataloader(self):
+        """Train dataloader with enhanced features"""
+        full_dataset = EnhancedDataset(
+            self.dataset_path,
+            "train_val",
+            transforms=self.train_transform,
+            metadata=self.metadata,
+        )
+        
+        # Get temporal split indices
+        train_indices, _ = self._get_temporal_split_indices()
+        train_subset = Subset(full_dataset, train_indices)
+        
+        return DataLoader(
+            train_subset,
+            batch_size=self.batch_size,
+            shuffle=True,
+            num_workers=self.num_workers,
+            pin_memory=True,  # Optimisation GPU
+        )
+
+    def val_dataloader(self):
+        """Validation dataloader with enhanced features"""
+        full_dataset = EnhancedDataset(
+            self.dataset_path,
+            "train_val",
+            transforms=self.test_transform,
+            metadata=self.metadata,
+        )
+        
+        # Get temporal split indices
+        _, val_indices = self._get_temporal_split_indices()
+        val_subset = Subset(full_dataset, val_indices)
+        
+        return DataLoader(
+            val_subset,
+            batch_size=self.batch_size,
+            shuffle=False,
+            num_workers=self.num_workers,
+            pin_memory=True,
+        )
     
-    transform = transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-    ])
-    
-    dataset = EnhancedDataset(
-        dataset_path="dataset",
-        split="train_val",
-        transforms=transform,
-        metadata=["title", "description"]  # Maintenant utilisés tous les deux
-    )
-    
-    # Tester un échantillon
-    sample = dataset[0]
-    print(f"Sample keys: {sample.keys()}")
-    print(f"Numeric features shape: {sample['numeric_features'].shape}")
-    print(f"Image shape: {sample['image'].shape}")
-    print(f"Text preview: {sample['text'][:100]}...")
+    def test_dataloader(self):
+        """Test dataloader with enhanced features"""
+        dataset = EnhancedDataset(
+            self.dataset_path,
+            "test",
+            transforms=self.test_transform,
+            metadata=self.metadata,
+        )
+        return DataLoader(
+            dataset,
+            batch_size=self.batch_size,
+            shuffle=False,
+            num_workers=self.num_workers,
+            pin_memory=True,
+        )

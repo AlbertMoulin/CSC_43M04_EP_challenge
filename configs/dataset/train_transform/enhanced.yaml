@@ -1,0 +1,19 @@
+_target_: torchvision.transforms.Compose
+transforms:
+  - _target_: torchvision.transforms.Resize
+    size: [256, 256]
+  - _target_: torchvision.transforms.RandomResizedCrop
+    size: [224, 224]
+    scale: [0.8, 1.0]
+    ratio: [0.75, 1.33]
+  - _target_: torchvision.transforms.RandomHorizontalFlip
+    p: 0.3  # Réduit car miniatures YouTube ont souvent du texte
+  - _target_: torchvision.transforms.ColorJitter
+    brightness: 0.2
+    contrast: 0.2
+    saturation: 0.2
+    hue: 0.1
+  - _target_: torchvision.transforms.ToTensor
+  - _target_: torchvision.transforms.Normalize
+    mean: [0.485, 0.456, 0.406]
+    std: [0.229, 0.224, 0.225]

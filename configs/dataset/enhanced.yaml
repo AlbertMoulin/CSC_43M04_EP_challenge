@@ -1,0 +1,7 @@
+defaults:
+    - val_transform: simple
+    - train_transform: enhanced
+
+batch_size: 32  # Réduit pour stabilité avec le nouveau modèle
+num_workers: 4
+metadata: ["title", "description"]

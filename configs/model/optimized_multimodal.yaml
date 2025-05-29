@@ -1,0 +1,9 @@
+instance:
+  _target_: models.optimized_multimodal.OptimizedMultiModalModel
+  text_model_name: "bert-base-uncased"  # Plus stable que Gemma
+  max_token_length: 512  # Plus long pour title + description
+  freeze_vision: True
+  freeze_text: True  # Démarrer frozen, unfreeze plus tard
+  dropout_rate: 0.3
+
+name: OPTIMIZED_MULTIMODAL

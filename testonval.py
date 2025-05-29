@@ -2,9 +2,8 @@ import hydra
 from torch.utils.data import DataLoader
 import pandas as pd
 import torch
-import numpy as np
-# Dans create_submission.py ligne 4 :
-from data.enhanced_datamodule import EnhancedDataset
+
+from data.dataset import Dataset
 
 torch.cuda.empty_cache()  # Clear cache to avoid memory issues
 
@@ -12,20 +11,13 @@ torch.cuda.empty_cache()  # Clear cache to avoid memory issues
 @hydra.main(config_path="configs", config_name="train")
 def create_submission(cfg):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    test_loader = DataLoader(
-        EnhancedDataset(
-            cfg.datamodule.dataset_path,
-            "test",
-            transforms=hydra.utils.instantiate(cfg.datamodule.test_transform),
-            metadata=cfg.datamodule.metadata,
-        ),
-        batch_size=cfg.datamodule.batch_size,
-        shuffle=False,
-        num_workers=cfg.datamodule.num_workers,
-    )
+
+    datamodule = hydra.utils.instantiate(cfg.datamodule)
+    train_loader = datamodule.train_dataloader()
+    val_loader = datamodule.val_dataloader()
     # - Load model and checkpoint
     model = hydra.utils.instantiate(cfg.model.instance).to(device)
-    checkpoint = torch.load(r'checkpoints/enhanced_OPTIMIZED_MULTIMODAL_2025-05-29_08-21-16_best_val_loss.pt')
+    checkpoint = torch.load(r'checkpoints/SIMPLE_MULTIMODAL_2025-05-27_21-40-46_best_val_loss.pt')
     print(f"Loading model from checkpoint: {cfg.checkpoint_path}")
     model.load_state_dict(checkpoint)
     model.eval()
@@ -34,11 +26,10 @@ def create_submission(cfg):
     # - Create submission.csv
     submission = pd.DataFrame(columns=["ID", "views"])
     with torch.no_grad():
-        for i, batch in enumerate(test_loader):
+        for i, batch in enumerate(val_loader):
             batch["image"] = batch["image"].to(device)
             
             preds = model(batch).squeeze().cpu().numpy()
-            preds = np.expm1(preds)
             submission = pd.concat(
                 [
                     submission,

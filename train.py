@@ -18,7 +18,7 @@ def train(cfg):
     )
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = hydra.utils.instantiate(cfg.model.instance).to(device)
-    # checkpoint = torch.load(r'checkpoints/SIMPLE_MULTIMODAL_2025-05-24_23-02-14_best_val_loss.pt', map_location=device)
+    # checkpoint = torch.load(r'checkpoints/enhanced_OPTIMIZED_MULTIMODAL_2025-05-29_08-21-16_best_val_loss.pt', map_location=device)
     # model.load_state_dict(checkpoint)
     optimizer = hydra.utils.instantiate(cfg.optim, params=model.parameters())
     loss_fn = hydra.utils.instantiate(cfg.loss_fn)
@@ -76,6 +76,7 @@ def train(cfg):
         
         val_metrics = {}
         epoch_val_loss = 0
+        comparable_loss = 0
         num_samples_val = 0
         model.eval()
         if val_loader is not None: 
@@ -85,10 +86,24 @@ def train(cfg):
                 with torch.no_grad():
                     preds = model(batch).squeeze()
                 loss = loss_fn(preds, batch["target"])
+                with torch.no_grad():
+                    # Reconvertir en vues normales pour comparaison
+                    preds_normal = torch.expm1(preds)
+                    targets_normal = torch.expm1(batch["target"])
+                    
+                    # Loss MSLE comparable aux anciens runs
+                    log_pred = torch.log1p(preds_normal)
+                    log_true = torch.log1p(targets_normal)
+                    comparable_lossi = torch.mean((log_pred - log_true) ** 2)
+                    
+                    # Log pour comparaison
+                comparable_loss += comparable_lossi.detach().cpu().numpy()* len(batch["image"])
                 epoch_val_loss += loss.detach().cpu().numpy() * len(batch["image"])
                 num_samples_val += len(batch["image"])
             epoch_val_loss /= num_samples_val
+            comparable_loss /= num_samples_val
 
+            logger.log({"val/comparable_msle": comparable_loss.item()}) if logger else None
             if epoch_val_loss < best_val_loss:
                 best_val_loss = epoch_val_loss
                 print(
